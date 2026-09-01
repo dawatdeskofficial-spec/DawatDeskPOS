@@ -19,10 +19,10 @@ const roleOptions = [
 
 const demoCredentials = {
   main_admin: { email: 'admin@gmail.com', password: 'admin123' },
-  restaurant_admin: { email: 'manager.hariom@gmail.com', password: 'manager@123' },
-  waiter: { email: 'john.waiter@gmail.com', password: 'waiter@123' },
-  chef: { email: 'chef.michael@gmail.com', password: 'chef@123' },
-  cashier: { email: 'hari.cashier@gmail.com', password: 'cashier@123' },
+  restaurant_admin: { email: 'manager.hariom@gmail.com', password: 'admin123' },
+  waiter: { email: 'john.waiter@gmail.com', password: 'waiter123' },
+  chef: { email: 'chef.michael@gmail.com', password: 'chef123' },
+  cashier: { email: 'hari.cashier@gmail.com', password: 'cashier123' },
 }
 
 const selected = ref<AppRole>('main_admin')
@@ -197,16 +197,6 @@ async function launchKioskDemo() {
               Sign in to {{ ROLE_LABELS[selected] }}
             </Button>
           </form>
-
-          <div class="relative flex py-2 items-center">
-            <div class="flex-grow border-t border-border"></div>
-            <span class="flex-shrink mx-4 text-muted-foreground text-[10.5px] font-bold">OR</span>
-            <div class="flex-grow border-t border-border"></div>
-          </div>
-
-          <Button type="button" @click="launchKioskDemo" class="w-full h-11 bg-accent text-accent-foreground font-semibold hover:bg-accent/90 shadow-soft flex items-center justify-center gap-2">
-            <Monitor class="h-4 w-4" /> Launch Customer Kiosk (Demo)
-          </Button>
 
           <p class="mt-6 text-xs text-center text-muted-foreground">
             Use the preloaded demo credentials for the selected role. The login form updates automatically when you change roles.

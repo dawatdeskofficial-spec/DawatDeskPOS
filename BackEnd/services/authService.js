@@ -23,7 +23,7 @@ class AuthService {
   async loginUser(email, password) {
     try {
       // Find user by email
-      const user = await User.findOne({ email }).select('+password');
+      const user = await User.findOne({ email }).select('+password').populate('restaurantId');
       if (!user) {
         throw new Error('Invalid credentials');
       }

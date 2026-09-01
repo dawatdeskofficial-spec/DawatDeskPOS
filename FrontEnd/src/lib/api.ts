@@ -8,7 +8,6 @@ export type BackendUser = {
   restaurantId?: string | Record<string, unknown>;
   phone?: string;
   location?: string;
-  shift?: string;
   createdAt?: string;
   updatedAt?: string;
   isActive?: boolean;
@@ -132,7 +131,6 @@ export const adminCreateUser = async (data: {
   password?: string;
   role: AppRole;
   restaurantId?: string;
-  shift?: string;
 }) => {
   return authFetch("/api/users", {
     method: "POST",
@@ -174,7 +172,7 @@ export const deleteRestaurant = async (restaurantId: string) => {
 };
 
 // Menu APIs
-export const getMenuItems = async (restaurantId: string, page = 1, limit = 20) => {
+export const getMenuItems = async (restaurantId: string, page = 1, limit = 500) => {
   return authFetch(`/api/menu/restaurant/${restaurantId}?page=${page}&limit=${limit}`, {
     method: "GET",
   });
@@ -184,7 +182,8 @@ export const createMenuItem = async (data: {
   restaurantId: string;
   name: string;
   price: number;
-  category: string;
+  category?: string;
+  categoryId?: string;
   description?: string;
   isAvailable?: boolean;
   fulfillmentOwner?: "KITCHEN" | "WAITER";
@@ -204,6 +203,59 @@ export const updateMenuItem = async (menuItemId: string, data: Record<string, un
 
 export const deleteMenuItem = async (menuItemId: string) => {
   return authFetch(`/api/menu/${menuItemId}`, { method: "DELETE" });
+};
+
+// Category APIs
+export type MenuCategory = {
+  _id: string;
+  id?: string;
+  restaurantId: string;
+  name: string;
+  description?: string;
+  icon?: string;
+  displayOrder: number;
+  isActive: boolean;
+  itemCount?: number;
+  availableItemCount?: number;
+};
+
+export const getCategoriesByRestaurant = async (restaurantId: string) => {
+  return authFetch(`/api/categories/restaurant/${restaurantId}`, { method: "GET" });
+};
+
+export const getPublicCategoriesByRestaurant = async (restaurantId: string) => {
+  return fetchJson(`/api/categories/public/restaurant/${restaurantId}`, { method: "GET" });
+};
+
+export const createCategory = async (data: {
+  restaurantId: string;
+  name: string;
+  description?: string;
+  icon?: string;
+  isActive?: boolean;
+}) => {
+  return authFetch("/api/categories", {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
+};
+
+export const updateCategory = async (categoryId: string, data: Partial<MenuCategory>) => {
+  return authFetch(`/api/categories/${categoryId}`, {
+    method: "PUT",
+    body: JSON.stringify(data),
+  });
+};
+
+export const deleteCategory = async (categoryId: string) => {
+  return authFetch(`/api/categories/${categoryId}`, { method: "DELETE" });
+};
+
+export const reorderCategories = async (restaurantId: string, categoryIds: string[]) => {
+  return authFetch(`/api/categories/restaurant/${restaurantId}/reorder`, {
+    method: "PUT",
+    body: JSON.stringify({ categoryIds }),
+  });
 };
 
 // Order APIs
@@ -233,7 +285,11 @@ export const getOrdersByTable = async (
 
 export const createOrder = async (data: {
   restaurantId: string;
-  tableNumber?: string;
+  tableNumber?: string | number;
+  orderType?: 'DINE_IN' | 'PARCEL';
+  customerName?: string;
+  customerPhone?: string;
+  notes?: string;
   items: Array<{ menuItemId: string; quantity: number; specialInstructions?: string }>;
 }) => {
   return authFetch("/api/orders", {
@@ -263,6 +319,17 @@ export const updateOrderStatus = async (
   return authFetch(`/api/orders/${orderId}/status`, {
     method: "PUT",
     body: JSON.stringify({ status, kitchenBatch, itemIds }),
+  });
+};
+
+export const updateOrderItemQuantity = async (
+  orderId: string,
+  itemId: string,
+  quantity: number
+) => {
+  return authFetch(`/api/orders/${orderId}/items/${itemId}`, {
+    method: "PUT",
+    body: JSON.stringify({ quantity }),
   });
 };
 
@@ -352,3 +419,69 @@ export const updateSystemSettings = async (data: Record<string, unknown>) => {
 export const getSystemLogs = async (type = "info", limit = 100) => {
   return authFetch(`/api/settings/logs?type=${type}&limit=${limit}`, { method: "GET" });
 };
+
+// Waiting Queue APIs
+export type WaitingQueueEntry = {
+  _id: string;
+  id?: string;
+  restaurantId: string;
+  queueNumber?: number;
+  customerName: string;
+  customerPhone?: string;
+  partySize: number;
+  notes?: string;
+  status: 'WAITING' | 'CALLED' | 'SEATED' | 'CANCELLED';
+  assignedTable?: number | null;
+  priority?: 'NORMAL' | 'VIP' | 'HIGH';
+  estimatedWaitMinutes?: number;
+  calledAt?: string | null;
+  seatedAt?: string | null;
+  cancelledAt?: string | null;
+  createdBy?: any;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export const getWaitingQueue = async (restaurantId: string, status?: string, all = false) => {
+  let url = `/api/waiting-queue/restaurant/${restaurantId}?all=${all}`;
+  if (status) {
+    url += `&status=${status}`;
+  }
+  return authFetch(url, { method: "GET" });
+};
+
+export const addToWaitingQueue = async (data: {
+  restaurantId?: string;
+  customerName: string;
+  customerPhone?: string;
+  partySize: number;
+  notes?: string;
+  priority?: 'NORMAL' | 'VIP' | 'HIGH';
+  estimatedWaitMinutes?: number;
+}) => {
+  return authFetch("/api/waiting-queue", {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
+};
+
+export const updateWaitingQueueEntry = async (id: string, data: Partial<WaitingQueueEntry>) => {
+  return authFetch(`/api/waiting-queue/${id}`, {
+    method: "PUT",
+    body: JSON.stringify(data),
+  });
+};
+
+export const seatWaitingCustomer = async (id: string, tableNumber: number) => {
+  return authFetch(`/api/waiting-queue/${id}/seat`, {
+    method: "PUT",
+    body: JSON.stringify({ tableNumber }),
+  });
+};
+
+export const deleteWaitingQueueEntry = async (id: string) => {
+  return authFetch(`/api/waiting-queue/${id}`, {
+    method: "DELETE",
+  });
+};
+

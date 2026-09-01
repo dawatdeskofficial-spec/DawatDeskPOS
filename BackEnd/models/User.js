@@ -45,11 +45,6 @@ const userSchema = new mongoose.Schema(
       trim: true,
       default: '',
     },
-    shift: {
-      type: String,
-      enum: ['Morning', 'Evening', 'Night'],
-      default: 'Morning',
-    },
     isActive: {
       type: Boolean,
       default: true,
@@ -75,17 +70,8 @@ userSchema.methods.matchPassword = async function (enteredPassword) {
   return await bcrypt.compare(enteredPassword, this.password);
 };
 
-// Prevent password from being returned in queries
-userSchema.post(['find', 'findOne'], function (docs) {
-  if (Array.isArray(docs)) {
-    docs.forEach((doc) => {
-      if (doc && doc.password) {
-        delete doc.password;
-      }
-    });
-  } else if (docs && docs.password) {
-    delete docs.password;
-  }
-});
+// Note: password is protected by `select: false` in the schema.
+// Do NOT add a post-find hook that deletes password — it breaks login
+// because authService uses .select('+password') which needs the field intact.
 
 module.exports = mongoose.model('User', userSchema);

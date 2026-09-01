@@ -6,7 +6,12 @@ class MenuController {
   // Create menu item
   async createMenuItem(req, res) {
     try {
-      const menuItemData = req.body;
+      const menuItemData = { ...req.body };
+      if (!menuItemData.restaurantId && req.user) {
+        const r = req.user.restaurantId;
+        menuItemData.restaurantId = typeof r === 'string' ? r : (r && (r._id || r.id));
+      }
+
       const menuItem = await menuService.createMenuItem(menuItemData);
 
       return sendSuccess(
@@ -31,7 +36,11 @@ class MenuController {
         restaurantId,
         page,
         limit,
-        category
+        category,
+        {
+          availableOnly: req.isPublicMenuRequest === true,
+          activeCategoryOnly: req.isPublicMenuRequest === true,
+        }
       );
 
       return sendPaginatedResponse(res, menuItems, page, limit, total);

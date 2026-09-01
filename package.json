@@ -4,6 +4,8 @@
   "version": "0.1.0",
   "description": "Monorepo for the Servia restaurant management backend and frontend.",
   "scripts": {
+    "dev": "cd BackEnd && npm run dev",
+    "start": "cd BackEnd && npm start",
     "backend": "cd BackEnd && npm run dev",
     "frontend": "cd FrontEnd && npm run dev",
     "build:frontend": "cd FrontEnd && npm run build",

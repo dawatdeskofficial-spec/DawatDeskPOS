@@ -18,6 +18,17 @@ router.post(
   }
 );
 
+// Get all active restaurants for public customer ordering
+router.get('/public', (req, res) => {
+  req.query.status = 'ACTIVE';
+  restaurantController.getAllRestaurants(req, res);
+});
+
+// Get public restaurant by ID
+router.get('/public/:id', (req, res) => {
+  restaurantController.getRestaurantById(req, res);
+});
+
 // Get all restaurants (MAIN_ADMIN only)
 router.get('/', authenticate, authorize('MAIN_ADMIN'), (req, res) => {
   restaurantController.getAllRestaurants(req, res);

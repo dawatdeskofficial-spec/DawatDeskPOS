@@ -133,6 +133,25 @@ class OrderController {
     }
   }
 
+  // Update item quantity in order
+  async updateOrderItemQuantity(req, res) {
+    try {
+      const { orderId, itemId } = req.params;
+      const { quantity } = req.body;
+
+      if (quantity === undefined || quantity === null) {
+        return sendError(res, 'Quantity is required', 400);
+      }
+
+      const orderItem = await orderService.updateOrderItemQuantity(orderId, itemId, quantity);
+
+      return sendSuccess(res, 'Item quantity updated successfully', orderItem);
+    } catch (error) {
+      logger.error(`Update item quantity error: ${error.message}`);
+      return sendError(res, error.message, 400);
+    }
+  }
+
   // Remove item from order
   async removeItemFromOrder(req, res) {
     try {

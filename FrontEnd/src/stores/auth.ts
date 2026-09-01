@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia'
-import { ref } from 'vue'
+import { ref, computed } from 'vue'
 import {
   loginUser,
   signupUser,
@@ -114,6 +114,28 @@ export const useAuthStore = defineStore('auth', () => {
     }
   }
 
+  const inspectedRestaurantId = ref<string | null>(
+    typeof window !== 'undefined' ? localStorage.getItem('INSPECTED_RESTAURANT_ID') : null
+  );
+
+  function setInspectedRestaurant(id: string | null) {
+    inspectedRestaurantId.value = id;
+    if (id) {
+      localStorage.setItem('INSPECTED_RESTAURANT_ID', id);
+    } else {
+      localStorage.removeItem('INSPECTED_RESTAURANT_ID');
+    }
+  }
+
+  const effectiveRestaurantId = computed(() => {
+    if (role.value === 'main_admin' && inspectedRestaurantId.value) {
+      return inspectedRestaurantId.value;
+    }
+    const r = user.value?.restaurantId;
+    if (!r) return '';
+    return typeof r === 'string' ? r : (r as any).id || (r as any)._id || '';
+  });
+
   async function updateProfile(data: Partial<Pick<BackendUser, "name" | "phone" | "location">>) {
     if (!user.value) throw new Error("No authenticated user");
     const response = await updateUserApi(user.value.id, data);
@@ -122,5 +144,18 @@ export const useAuthStore = defineStore('auth', () => {
     role.value = parseRole(updatedUser.role);
   }
 
-  return { user, role, loading, initAuth, signIn, signUp, signOut, refreshUser, updateProfile };
+  return {
+    user,
+    role,
+    loading,
+    inspectedRestaurantId,
+    effectiveRestaurantId,
+    setInspectedRestaurant,
+    initAuth,
+    signIn,
+    signUp,
+    signOut,
+    refreshUser,
+    updateProfile
+  };
 })

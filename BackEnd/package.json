@@ -9,9 +9,11 @@
     "test": "node --test tests/*.test.js",
     "seed": "node seed.js",
     "seed:dosa-menu": "node seedDosaMenu.js",
-    "add:cold-drink-can": "node addColdDrinkCan.js"
+    "add:cold-drink-can": "node addColdDrinkCan.js",
+    "migrate:categories": "node migrations/migrateCategories.js"
   },
   "dependencies": {
+    "axios": "^1.20.0",
     "bcryptjs": "^3.0.3",
     "cors": "^2.8.6",
     "dotenv": "^17.4.2",

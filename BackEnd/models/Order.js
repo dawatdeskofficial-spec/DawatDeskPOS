@@ -4,8 +4,23 @@ const orderSchema = new mongoose.Schema(
   {
     tableNumber: {
       type: Number,
-      required: [true, 'Table number is required'],
-      min: [1, 'Table number must be positive'],
+      default: 0,
+      min: [0, 'Table number cannot be negative'],
+    },
+    orderType: {
+      type: String,
+      enum: ['DINE_IN', 'PARCEL'],
+      default: 'DINE_IN',
+    },
+    customerName: {
+      type: String,
+      default: '',
+      trim: true,
+    },
+    customerPhone: {
+      type: String,
+      default: '',
+      trim: true,
     },
     restaurantId: {
       type: mongoose.Schema.Types.ObjectId,

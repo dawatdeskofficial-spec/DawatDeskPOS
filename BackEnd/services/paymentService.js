@@ -1,6 +1,7 @@
 const Payment = require('../models/Payment');
 const Order = require('../models/Order');
 const OrderItem = require('../models/OrderItem');
+const WaitingQueue = require('../models/WaitingQueue');
 const SystemSettings = require('../models/SystemSettings');
 const Restaurant = require('../models/Restaurant');
 const logger = require('../utils/logger');
@@ -13,15 +14,19 @@ class PaymentService {
     const now = new Date();
     const stamp = now.toISOString().slice(0, 10).replace(/-/g, '');
     const count = await Payment.countDocuments({ restaurantId });
-    return `BILL-${stamp}-${String(count + 1).padStart(4, '0')}`;
+    const suffix = Math.floor(1000 + Math.random() * 9000);
+    return `BILL-${stamp}-${String(count + 1).padStart(4, '0')}-${suffix}`;
   }
 
   // Create payment
   async createPayment(paymentData) {
     try {
-      const existingPayment = await Payment.findOne({ orderId: paymentData.orderId });
+      const existingPayment = await Payment.findOne({
+        orderId: paymentData.orderId,
+        status: 'COMPLETED',
+      });
       if (existingPayment) {
-        throw new Error('Payment already exists for this order');
+        throw new Error('Payment has already been completed for this order');
       }
 
       const order = await Order.findById(paymentData.orderId);
@@ -29,8 +34,12 @@ class PaymentService {
         throw new Error('Order not found');
       }
 
-      if (order.status !== ORDER_STATUS.SERVED) {
-        throw new Error('Payment can be collected only after the order is served');
+      if (order.status === ORDER_STATUS.COMPLETED && order.paymentStatus === 'COMPLETED') {
+        throw new Error('Payment has already been completed for this order');
+      }
+
+      if (order.status === ORDER_STATUS.CANCELLED) {
+        throw new Error('Cannot collect payment for a cancelled order');
       }
 
       const [settings, restaurant] = await Promise.all([
@@ -39,22 +48,28 @@ class PaymentService {
       ]);
       const gstPercentage = restaurant?.gstPercentage ?? settings?.gstPercentage ?? 5;
 
-      const orderItems = await OrderItem.find({ orderId: paymentData.orderId });
+      const orderItems = await OrderItem.find({
+        orderId: paymentData.orderId,
+        status: { $ne: 'CANCELLED' },
+      });
       const computedSubtotal = orderItems.reduce(
-        (sum, item) => sum + item.price * item.quantity,
+        (sum, item) => sum + (Number(item.price) || 0) * (Number(item.quantity) || 1),
         0
       );
-      const subtotal = roundMoney(paymentData.subtotal ?? computedSubtotal);
+      const subtotal = roundMoney(paymentData.subtotal !== undefined ? paymentData.subtotal : computedSubtotal);
       const discount = roundMoney(paymentData.discount);
       const gstAmount = roundMoney((subtotal * gstPercentage) / 100);
       const totalAmount = Math.max(0, roundMoney(subtotal + gstAmount - discount));
       const paidAt = paymentData.paidAt ? new Date(paymentData.paidAt) : new Date();
 
+      const receiptNumber = await this.buildReceiptNumber(order.restaurantId);
+
       const payment = new Payment({
         ...paymentData,
         orderId: order._id,
         restaurantId: order.restaurantId,
-        receiptNumber: await this.buildReceiptNumber(order.restaurantId),
+        receiptNumber,
+        subtotal,
         discount,
         gstPercentage,
         gstAmount,
@@ -65,6 +80,12 @@ class PaymentService {
 
       await payment.save();
 
+      // Mark all non-cancelled items as DELIVERED
+      await OrderItem.updateMany(
+        { orderId: order._id, status: { $ne: 'CANCELLED' } },
+        { status: 'DELIVERED' }
+      );
+
       await Order.findByIdAndUpdate(paymentData.orderId, {
         status: ORDER_STATUS.COMPLETED,
         paymentStatus: 'COMPLETED',
@@ -72,10 +93,23 @@ class PaymentService {
         gst: gstAmount,
         discount,
         totalAmount,
+        servedAt: order.servedAt || new Date(),
         completedAt: paidAt,
       });
 
-      logger.info(`Payment created: ${payment._id}`);
+      // Clear seated waiting queue for this table so table becomes vacant for queue
+      if (order.tableNumber) {
+        await WaitingQueue.updateMany(
+          {
+            restaurantId: order.restaurantId,
+            assignedTable: Number(order.tableNumber),
+            status: 'SEATED',
+          },
+          { status: 'COMPLETED' }
+        );
+      }
+
+      logger.info(`Payment created: ${payment._id} (${receiptNumber}) for Order: ${order._id}`);
       return payment;
     } catch (error) {
       logger.error(`Create payment error: ${error.message}`);
@@ -87,13 +121,17 @@ class PaymentService {
   async getPaymentsByRestaurant(restaurantId, page = 1, limit = 20, status = null) {
     try {
       const skip = (page - 1) * limit;
-      const query = { restaurantId };
+      const query = {};
+      if (restaurantId && restaurantId !== 'all') {
+        query.restaurantId = restaurantId;
+      }
 
       if (status) {
         query.status = status;
       }
 
       const payments = await Payment.find(query)
+        .populate('restaurantId', 'name location city')
         .populate({
           path: 'orderId',
           populate: { path: 'createdBy', select: 'name email role' },

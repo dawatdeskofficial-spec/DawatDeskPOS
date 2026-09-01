@@ -19,8 +19,13 @@ const menuItemSchema = new mongoose.Schema(
     },
     category: {
       type: String,
-      required: [true, 'Category is required'],
-      enum: ['APPETIZER', 'MAIN_COURSE', 'DESSERT', 'BEVERAGE', 'SIDES'],
+      default: '',
+      trim: true,
+    },
+    categoryId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Category',
+      default: null,
     },
     restaurantId: {
       type: mongoose.Schema.Types.ObjectId,
@@ -52,5 +57,6 @@ const menuItemSchema = new mongoose.Schema(
 
 // Index for faster queries
 menuItemSchema.index({ restaurantId: 1, category: 1 });
+menuItemSchema.index({ restaurantId: 1, categoryId: 1 });
 
 module.exports = mongoose.model('MenuItem', menuItemSchema);

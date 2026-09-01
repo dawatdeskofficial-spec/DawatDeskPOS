@@ -19,6 +19,12 @@ router.post(
   }
 );
 
+// Public menu for customer ordering
+router.get('/public/restaurant/:restaurantId', (req, res) => {
+  req.isPublicMenuRequest = true;
+  menuController.getMenuItems(req, res);
+});
+
 // Get menu items by restaurant
 router.get('/restaurant/:restaurantId', authenticate, validateRestaurantOwnership(), (req, res) => {
   menuController.getMenuItems(req, res);
@@ -34,11 +40,11 @@ router.get('/:id', authenticate, validateRestaurantOwnership('menu'), (req, res)
   menuController.getMenuItemById(req, res);
 });
 
-// Update menu item
+// Update menu item (MAIN_ADMIN, RESTAURANT_ADMIN, and CHEF for 86'ing / availability)
 router.put(
   '/:id',
   authenticate,
-  authorize('MAIN_ADMIN', 'RESTAURANT_ADMIN'),
+  authorize('MAIN_ADMIN', 'RESTAURANT_ADMIN', 'CHEF'),
   validateRestaurantOwnership('menu'),
   (req, res) => {
     menuController.updateMenuItem(req, res);

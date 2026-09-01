@@ -34,7 +34,6 @@ export const adminNav: NavItem[] = [
   { to: "/admin/reports", label: "Reports", icon: FileText },
   { to: "/admin/logs", label: "System Logs", icon: ShieldAlert },
   { to: "/admin/settings", label: "Settings", icon: Settings },
-  { to: "/customer-ordering", label: "Customer Kiosk", icon: Monitor },
 ];
 
 export const restaurantNav: NavItem[] = [
@@ -44,12 +43,10 @@ export const restaurantNav: NavItem[] = [
   { to: "/restaurant/menu", label: "Menu", icon: UtensilsCrossed },
   { to: "/restaurant/staff", label: "Staff", icon: Users },
   { to: "/restaurant/reports", label: "Analytics", icon: BarChart3 },
-  { to: "/customer-ordering", label: "Customer Kiosk", icon: Monitor },
 ];
 
 export const waiterNav: NavItem[] = [
   { to: "/waiter", label: "Take Order", icon: ClipboardList },
-  { to: "/customer-ordering", label: "Customer Kiosk", icon: Monitor },
 ];
 
 export const chefNav: NavItem[] = [

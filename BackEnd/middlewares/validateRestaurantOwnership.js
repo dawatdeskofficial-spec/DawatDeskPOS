@@ -3,6 +3,8 @@ const User = require('../models/User');
 const Order = require('../models/Order');
 const Payment = require('../models/Payment');
 const MenuItem = require('../models/MenuItem');
+const Category = require('../models/Category');
+const WaitingQueue = require('../models/WaitingQueue');
 const { sendError } = require('../utils/responseHandler');
 const { normalizeRole } = require('../utils/constants');
 const logger = require('../utils/logger');
@@ -52,6 +54,22 @@ const findResourceRestaurantId = async (req, resourceType) => {
     if (menuItemId && mongoose.Types.ObjectId.isValid(menuItemId)) {
       const menuItem = await MenuItem.findById(menuItemId).select('restaurantId');
       return getId(menuItem?.restaurantId);
+    }
+  }
+
+  if (resourceType === 'category') {
+    const categoryId = req.params?.categoryId || req.params?.id || req.body?.categoryId;
+    if (categoryId && mongoose.Types.ObjectId.isValid(categoryId)) {
+      const category = await Category.findById(categoryId).select('restaurantId');
+      return getId(category?.restaurantId);
+    }
+  }
+
+  if (resourceType === 'waitingQueue') {
+    const queueId = req.params?.id || req.body?.queueId;
+    if (queueId && mongoose.Types.ObjectId.isValid(queueId)) {
+      const queueEntry = await WaitingQueue.findById(queueId).select('restaurantId');
+      return getId(queueEntry?.restaurantId);
     }
   }
 

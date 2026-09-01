@@ -11,10 +11,12 @@ const logger = require('./utils/logger');
 const authRoutes = require('./routes/authRoutes');
 const restaurantRoutes = require('./routes/restaurantRoutes');
 const menuRoutes = require('./routes/menuRoutes');
+const categoryRoutes = require('./routes/categoryRoutes');
 const orderRoutes = require('./routes/orderRoutes');
 const paymentRoutes = require('./routes/paymentRoutes');
 const userRoutes = require('./routes/userRoutes');
 const systemSettingsRoutes = require('./routes/systemSettingsRoutes');
+const waitingQueueRoutes = require('./routes/waitingQueueRoutes');
 
 // Initialize Express app
 const app = express();
@@ -46,10 +48,12 @@ app.get('/health', (req, res) => {
 app.use('/api/auth', authRoutes);
 app.use('/api/restaurants', restaurantRoutes);
 app.use('/api/menu', menuRoutes);
+app.use('/api/categories', categoryRoutes);
 app.use('/api/orders', orderRoutes);
 app.use('/api/payments', paymentRoutes);
 app.use('/api/users', userRoutes);
 app.use('/api/settings', systemSettingsRoutes);
+app.use('/api/waiting-queue', waitingQueueRoutes);
 
 // 404 handler
 app.use((req, res) => {
@@ -63,27 +67,36 @@ app.use((req, res) => {
 app.use(errorHandler);
 
 // Connect to database and start server
-const PORT = process.env.PORT || 5000;
+const PORT = process.env.PORT || 5001;
 
 const startServer = async () => {
   try {
-    // Connect to MongoDB
     await connectDB();
 
-    // Start server
     app.listen(PORT, () => {
       logger.info(`Server started successfully on port ${PORT}`);
       console.log(`\n🚀 Server is running on http://localhost:${PORT}`);
       console.log(`📝 API Base URL: http://localhost:${PORT}/api`);
-      console.log('\n✅ Health Check: http://localhost:${PORT}/health');
+      console.log(`✅ Health Check: http://localhost:${PORT}/health`);
     });
   } catch (error) {
-    logger.error(`Failed to start server: ${error.message}`);
+    const message = error && error.message ? error.message : String(error);
+    console.error(`Server startup failed: ${message}`);
+    logger.error(`Server startup failed: ${message}`);
     process.exit(1);
   }
 };
 
 startServer();
+
+// Global crash prevention handlers
+process.on('uncaughtException', (err) => {
+  logger.error(`Uncaught Exception: ${err.message}`, { stack: err.stack });
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+  logger.error('Unhandled Rejection at:', { promise, reason });
+});
 
 // Graceful shutdown
 process.on('SIGTERM', () => {

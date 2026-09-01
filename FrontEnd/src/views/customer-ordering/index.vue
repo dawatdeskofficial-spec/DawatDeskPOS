@@ -2,7 +2,7 @@
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore, ROLE_HOMES } from '@/stores/auth'
-import { getMenuItems, createOrder, getRestaurantById, authFetch } from '@/lib/api'
+import { createOrder, authFetch, fetchJson, getPublicCategoriesByRestaurant, type MenuCategory } from '@/lib/api'
 import { toast } from 'vue-sonner'
 import {
   Utensils,
@@ -20,29 +20,13 @@ import {
   LogOut,
   Info,
   Compass,
-  AlertCircle
+  AlertCircle,
+  MapPin,
+  Building2
 } from 'lucide-vue-next'
 import Button from '@/components/ui/Button.vue'
 import Badge from '@/components/ui/Badge.vue'
 import Input from '@/components/ui/Input.vue'
-
-// Emojis for categories
-const CATEGORY_EMOJIS: Record<string, string> = {
-  APPETIZER: "🥗",
-  MAIN_COURSE: "🍔",
-  DESSERT: "🍰",
-  BEVERAGE: "🥤",
-  SIDES: "🍟",
-  ALL: "🍽️"
-}
-
-const CATEGORY_MAP: Record<string, string> = {
-  APPETIZER: "Starters",
-  MAIN_COURSE: "Mains",
-  DESSERT: "Desserts",
-  BEVERAGE: "Beverages",
-  SIDES: "Sides",
-}
 
 interface CartLine {
   id: string;
@@ -58,15 +42,20 @@ const auth = useAuthStore()
 const router = useRouter()
 
 // UI state
-const step = ref<"splash" | "menu" | "success">("splash")
+const step = ref<"restaurant" | "splash" | "menu" | "success">("restaurant")
+const selectedRestaurant = ref<any>(null)
 const orderType = ref<"dine_in" | "takeaway">("dine_in")
 const tableNumber = ref<number | null>(null)
 const customerName = ref("")
 const customerPhone = ref("")
 
+// Restaurants list
+const restaurants = ref<any[]>([])
+const loadingRestaurants = ref(true)
+
 // Menu state
 const menuItems = ref<any[]>([])
-const menuCategories = ref<string[]>(["All"])
+const menuCategories = ref<MenuCategory[]>([])
 const selectedCategory = ref("All")
 const searchQuery = ref("")
 const maxTables = ref(20)
@@ -81,33 +70,58 @@ const placingOrder = ref(false)
 const placedOrder = ref<any>(null)
 let pollInterval: any = null
 
+async function loadRestaurants() {
+  try {
+    loadingRestaurants.value = true
+    const response = await fetchJson('/api/restaurants/public?limit=100')
+    const data = response.data || response
+    const restaurantList = Array.isArray(data) ? data : (data.restaurants || [])
+    restaurants.value = restaurantList.filter((r: any) => r.status === 'ACTIVE')
+  } catch (err) {
+    console.error("Failed to load restaurants:", err)
+    toast.error("Failed to load restaurants. Please try again.")
+  } finally {
+    loadingRestaurants.value = false
+  }
+}
+
+async function selectRestaurant(restaurant: any) {
+  selectedRestaurant.value = restaurant
+  step.value = "splash"
+  // Load menu data for selected restaurant
+  loadMenuData()
+}
+
 async function loadMenuData() {
-  if (!auth.user?.restaurantId) return;
-  const restaurantId = typeof auth.user.restaurantId === 'string' 
-    ? auth.user.restaurantId 
-    : (auth.user.restaurantId as any).id || (auth.user.restaurantId as any)._id;
+  if (!selectedRestaurant.value?.id && !selectedRestaurant.value?._id) return;
+  const restaurantId = selectedRestaurant.value.id || selectedRestaurant.value._id;
 
   try {
     loadingMenu.value = true
-    const [menuRes, restaurantRes] = await Promise.all([
-      getMenuItems(restaurantId, 1, 100),
-      getRestaurantById(restaurantId)
+    const [menuRes, restaurantRes, categoryRes] = await Promise.all([
+      fetchJson(`/api/menu/public/restaurant/${restaurantId}?page=1&limit=100`),
+      fetchJson(`/api/restaurants/public/${restaurantId}`),
+      getPublicCategoriesByRestaurant(restaurantId)
     ])
 
-    const restaurant = restaurantRes.data as any
+    const restaurant = restaurantRes.data || restaurantRes
     maxTables.value = restaurant?.maxTables || 20
+    const categoryList: MenuCategory[] = categoryRes.data || []
+    const categoryById = new Map(categoryList.map((category) => [category._id || category.id, category]))
 
-    const rawMenu = (menuRes.data || []).map((m: any) => ({
+    const rawMenu = (menuRes.data || menuRes).map((m: any) => ({
       ...m,
       id: m._id || m.id,
-      emoji: m.image || CATEGORY_EMOJIS[m.category] || "🍴",
+      categoryId: typeof m.categoryId === 'string' ? m.categoryId : (m.categoryId?._id || m.categoryId?.id || ''),
+      categoryName: typeof m.categoryId === 'object' && m.categoryId?.name
+        ? m.categoryId.name
+        : (categoryById.get(typeof m.categoryId === 'string' ? m.categoryId : (m.categoryId?._id || m.categoryId?.id || ''))?.name || m.category || 'Uncategorized'),
+      emoji: m.image || categoryById.get(typeof m.categoryId === 'string' ? m.categoryId : (m.categoryId?._id || m.categoryId?.id || ''))?.icon || "🍴",
       available: m.isAvailable ?? true
     }))
     menuItems.value = rawMenu
-
-    const cats = new Set<string>()
-    rawMenu.forEach((m: any) => { if (m.category) cats.add(m.category) })
-    menuCategories.value = ["All", ...Array.from(cats)]
+    menuCategories.value = categoryList
+    selectedCategory.value = "All"
   } catch (err) {
     console.error("Failed to load kiosk menu:", err)
     toast.error("Failed to load menu items. Please try again.")
@@ -117,7 +131,7 @@ async function loadMenuData() {
 }
 
 onMounted(() => {
-  loadMenuData()
+  loadRestaurants()
 })
 
 onUnmounted(() => {
@@ -153,7 +167,7 @@ function addToCart(m: any) {
       price: m.price,
       qty: 1,
       emoji: m.emoji,
-      category: m.category,
+      category: m.categoryName,
       notes: ""
     })
   }
@@ -185,7 +199,7 @@ const total = computed(() => subtotal.value + tax.value)
 // Filter menu items
 const filteredMenuItems = computed(() => {
   return menuItems.value.filter(m => {
-    const matchesCategory = selectedCategory.value === "All" || m.category === selectedCategory.value
+    const matchesCategory = selectedCategory.value === "All" || m.categoryId === selectedCategory.value
     const matchesSearch = m.name.toLowerCase().includes(searchQuery.value.toLowerCase()) || 
                           (m.description && m.description.toLowerCase().includes(searchQuery.value.toLowerCase()))
     return matchesCategory && matchesSearch
@@ -199,9 +213,7 @@ async function checkout() {
     return
   }
 
-  const restaurantId = typeof auth.user?.restaurantId === 'string' 
-      ? auth.user.restaurantId 
-      : (auth.user?.restaurantId as any)?.id || (auth.user?.restaurantId as any)?._id
+  const restaurantId = selectedRestaurant.value?.id || selectedRestaurant.value?._id
 
   if (!restaurantId) {
     toast.error("Restaurant context is missing.")
@@ -341,7 +353,8 @@ function isStepActive(target: string) {
         </div>
         <div>
           <div class="font-display text-2xl font-bold tracking-tight text-foreground">Savoria</div>
-          <div class="text-[10px] uppercase tracking-[0.2em] text-muted-foreground font-semibold">Self-Ordering Kiosk</div>
+          <div v-if="selectedRestaurant" class="text-[10px] uppercase tracking-[0.2em] text-muted-foreground font-semibold">{{ selectedRestaurant.name }}</div>
+          <div v-else class="text-[10px] uppercase tracking-[0.2em] text-muted-foreground font-semibold">Select Your Restaurant</div>
         </div>
       </div>
 
@@ -370,15 +383,92 @@ function isStepActive(target: string) {
       </div>
     </header>
 
-    <!-- STEP 1: SPLASH SCREEN -->
-    <main v-if="step === 'splash'" class="flex-1 flex flex-col items-center justify-start md:justify-center p-4 md:p-8 lg:p-12 overflow-y-auto min-h-0 relative bg-gradient-to-b from-primary/5 via-transparent to-background">
+    <!-- STEP 0: RESTAURANT SELECTION SCREEN -->
+    <main v-if="step === 'restaurant'" class="flex-1 flex flex-col items-center justify-start md:justify-center p-4 md:p-8 lg:p-12 overflow-y-auto min-h-0 relative bg-linear-to-b from-primary/5 via-transparent to-background">
       <div class="absolute inset-0 pointer-events-none" style="background: radial-gradient(600px circle at 50% 30%, oklch(0.65 0.16 215 / 0.08), transparent 70%)" />
 
-      <div class="max-w-xl w-full text-center space-y-6 md:space-y-8 relative z-10 my-auto py-4">
+      <div class="max-w-4xl w-full text-center space-y-6 md:space-y-8 relative z-10 my-auto py-4">
         <!-- Logo and Heading -->
         <div class="space-y-3">
           <div class="inline-flex items-center gap-2 px-3 py-1.5 rounded-full border border-primary/15 bg-primary/5 text-xs text-primary font-semibold backdrop-blur animate-pulse">
-            <Sparkles class="h-3.5 w-3.5" /> Welcome to Savoria Kiosk
+            <Sparkles class="h-3.5 w-3.5" /> Welcome to Savoria
+          </div>
+          <h1 class="font-display text-4xl md:text-5xl font-extrabold tracking-tight leading-tight">
+            Choose Your<br />
+            <span class="gradient-text italic">Restaurant</span>
+          </h1>
+          <p class="text-muted-foreground text-sm max-w-sm mx-auto">
+            Select which restaurant you'd like to order from today.
+          </p>
+        </div>
+
+        <!-- Loading state -->
+        <div v-if="loadingRestaurants" class="flex flex-col items-center justify-center p-12">
+          <Compass class="h-8 w-8 animate-spin text-primary mb-4" />
+          <p class="text-muted-foreground">Loading restaurants...</p>
+        </div>
+
+        <!-- Restaurants Grid -->
+        <div v-else class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+          <button
+            v-for="restaurant in restaurants"
+            :key="restaurant._id || restaurant.id"
+            @click="selectRestaurant(restaurant)"
+            class="bg-card border-2 border-border rounded-3xl p-6 text-left hover:border-primary hover:shadow-glow transition-all duration-300 group"
+          >
+            <!-- Restaurant icon/emoji -->
+            <div class="h-16 w-16 rounded-2xl bg-primary/10 text-primary grid place-items-center text-3xl mb-4 group-hover:bg-primary/20 transition">
+              <Building2 class="h-8 w-8" />
+            </div>
+
+            <!-- Restaurant name -->
+            <h3 class="font-display text-xl font-bold text-foreground mb-1">{{ restaurant.name }}</h3>
+
+            <!-- Location -->
+            <div class="flex items-center gap-2 text-muted-foreground text-sm mb-3">
+              <MapPin class="h-4 w-4" />
+              <span>{{ restaurant.location }}</span>
+            </div>
+
+            <!-- Description -->
+            <p v-if="restaurant.description" class="text-xs text-muted-foreground mb-4 line-clamp-2">{{ restaurant.description }}</p>
+
+            <!-- Phone -->
+            <div class="text-xs text-muted-foreground">📞 {{ restaurant.phone }}</div>
+
+            <!-- Click hint -->
+            <div class="mt-4 inline-flex items-center gap-1 text-primary text-xs font-semibold group-hover:gap-2 transition-all">
+              Start Ordering <ChevronRight class="h-3.5 w-3.5" />
+            </div>
+          </button>
+        </div>
+
+        <!-- No restaurants message -->
+        <div v-if="!loadingRestaurants && restaurants.length === 0" class="text-center p-8">
+          <div class="text-4xl mb-3">🏪</div>
+          <h3 class="font-bold text-lg mb-1">No Restaurants Available</h3>
+          <p class="text-muted-foreground text-sm">Please check back later.</p>
+        </div>
+      </div>
+    </main>
+
+    <!-- STEP 1: SPLASH SCREEN -->
+    <main v-if="step === 'splash'" class="flex-1 flex flex-col items-center justify-start md:justify-center p-4 md:p-8 lg:p-12 overflow-y-auto min-h-0 relative bg-linear-to-b from-primary/5 via-transparent to-background">
+      <div class="absolute inset-0 pointer-events-none" style="background: radial-gradient(600px circle at 50% 30%, oklch(0.65 0.16 215 / 0.08), transparent 70%)" />
+
+      <div class="max-w-xl w-full text-center space-y-6 md:space-y-8 relative z-10 my-auto py-4">
+        <!-- Back Button -->
+        <button 
+          @click="selectedRestaurant = null; step = 'restaurant'"
+          class="flex items-center gap-1 text-muted-foreground hover:text-foreground text-xs font-semibold mx-auto mb-4 hover:gap-2 transition-all"
+        >
+          <ArrowLeft class="h-4 w-4" /> Change Restaurant
+        </button>
+
+        <!-- Logo and Heading -->
+        <div class="space-y-3">
+          <div class="inline-flex items-center gap-2 px-3 py-1.5 rounded-full border border-primary/15 bg-primary/5 text-xs text-primary font-semibold backdrop-blur animate-pulse">
+            <Sparkles class="h-3.5 w-3.5" /> {{ selectedRestaurant?.name }}
           </div>
           <h1 class="font-display text-4xl md:text-5xl font-extrabold tracking-tight leading-tight">
             Order &amp; Enjoy<br />
@@ -480,18 +570,32 @@ function isStepActive(target: string) {
         </div>
 
         <button 
-          v-for="cat in menuCategories" 
-          :key="cat"
-          @click="selectedCategory = cat"
+          key="all"
+          @click="selectedCategory = 'All'"
           :class="[
             'w-full flex items-center gap-3.5 p-3 rounded-2xl text-left transition-all border font-semibold text-sm',
-            selectedCategory === cat 
+            selectedCategory === 'All' 
               ? 'gradient-primary text-primary-foreground border-primary shadow-soft' 
               : 'border-transparent hover:bg-muted text-foreground/80'
           ]"
         >
-          <span class="text-2xl">{{ CATEGORY_EMOJIS[cat] || "🍴" }}</span>
-          <span>{{ cat === 'All' ? 'Browse All' : (CATEGORY_MAP[cat] || cat) }}</span>
+          <span class="text-2xl">🍽️</span>
+          <span>Browse All</span>
+        </button>
+
+        <button 
+          v-for="category in menuCategories" 
+          :key="category._id || category.id"
+          @click="selectedCategory = category._id || category.id || ''"
+          :class="[
+            'w-full flex items-center gap-3.5 p-3 rounded-2xl text-left transition-all border font-semibold text-sm',
+            selectedCategory === (category._id || category.id) 
+              ? 'gradient-primary text-primary-foreground border-primary shadow-soft' 
+              : 'border-transparent hover:bg-muted text-foreground/80'
+          ]"
+        >
+          <span class="text-2xl">{{ category.icon || "🍴" }}</span>
+          <span>{{ category.name }}</span>
         </button>
 
         <div class="pt-8 border-t border-border mt-auto">
@@ -549,7 +653,7 @@ function isStepActive(target: string) {
               </div>
 
               <!-- Dish Category Badge -->
-              <div class="text-[9.5px] font-bold text-primary uppercase tracking-widest">{{ CATEGORY_MAP[m.category] || m.category }}</div>
+              <div class="text-[9.5px] font-bold text-primary uppercase tracking-widest">{{ m.categoryName }}</div>
 
               <!-- Dish visual display (large emoji matching custom design) -->
               <div class="text-6xl my-4 text-center transform group-hover:scale-110 transition duration-300 select-none">
@@ -562,7 +666,7 @@ function isStepActive(target: string) {
                 <p class="text-xs text-muted-foreground line-clamp-2 leading-relaxed flex-1">{{ m.description || "Freshly cooked to perfection with select ingredients." }}</p>
                 
                 <div class="flex items-end justify-between pt-3 mt-auto">
-                  <div class="font-display text-2xl font-black text-primary">${{ m.price.toFixed(2) }}</div>
+                  <div class="font-display text-2xl font-black text-primary">₹{{ m.price.toFixed(0) }}</div>
                   
                   <!-- Add/Disable Action Button -->
                   <Button 
@@ -599,7 +703,7 @@ function isStepActive(target: string) {
             </div>
             <div>
               <div class="text-xs text-muted-foreground font-medium">Order Total</div>
-              <div class="font-display text-xl font-bold">${{ total.toFixed(2) }} <span class="text-xs font-normal text-muted-foreground/60">incl. tax</span></div>
+              <div class="font-display text-xl font-bold">₹{{ total.toFixed(0) }} <span class="text-xs font-normal text-muted-foreground/60">incl. tax</span></div>
             </div>
           </div>
 
@@ -640,7 +744,7 @@ function isStepActive(target: string) {
               <span class="text-3xl select-none">{{ l.emoji }}</span>
               <div class="flex-1 min-w-0">
                 <div class="font-semibold text-sm truncate text-foreground">{{ l.name }}</div>
-                <div class="text-xs text-primary font-bold">${{ l.price.toFixed(2) }} <span class="text-[10px] text-muted-foreground/60 font-normal">per item</span></div>
+                <div class="text-xs text-primary font-bold">₹{{ l.price.toFixed(0) }} <span class="text-[10px] text-muted-foreground/60 font-normal">per item</span></div>
               </div>
               
               <!-- Quantity controllers -->
@@ -673,11 +777,11 @@ function isStepActive(target: string) {
         <!-- Checkout Summary & Checkout Actions -->
         <div class="p-6 border-t border-border bg-card/50 space-y-4">
           <div class="space-y-2 text-sm text-muted-foreground">
-            <div class="flex justify-between"><span>Subtotal</span><span class="tabular-nums font-medium text-foreground">${{ subtotal.toFixed(2) }}</span></div>
-            <div class="flex justify-between"><span>Tax (8%)</span><span class="tabular-nums font-medium text-foreground">${{ tax.toFixed(2) }}</span></div>
+            <div class="flex justify-between"><span>Subtotal</span><span class="tabular-nums font-medium text-foreground">₹{{ subtotal.toFixed(0) }}</span></div>
+            <div class="flex justify-between"><span>Tax (5%)</span><span class="tabular-nums font-medium text-foreground">₹{{ tax.toFixed(0) }}</span></div>
             <div class="flex justify-between font-display text-2xl font-black text-foreground pt-2 border-t border-border">
               <span>Total Amount</span>
-              <span class="tabular-nums text-primary">${{ total.toFixed(2) }}</span>
+              <span class="tabular-nums text-primary">₹{{ total.toFixed(0) }}</span>
             </div>
           </div>
 
@@ -712,8 +816,8 @@ function isStepActive(target: string) {
         
         <!-- Large success check -->
         <div class="text-center space-y-3">
-          <div class="h-16 w-16 rounded-full bg-success/15 text-success grid place-items-center mx-auto text-3xl animate-bounce">
-            🎉
+          <div class="h-16 w-16 rounded-2xl bg-success/15 text-success grid place-items-center mx-auto shadow-soft">
+            <CheckCircle2 class="h-8 w-8 text-success" />
           </div>
           <h2 class="font-display text-3xl font-black text-foreground">Order Successfully Placed!</h2>
           <p class="text-sm text-muted-foreground">Your order is being sent directly to the kitchen display.</p>
@@ -722,9 +826,11 @@ function isStepActive(target: string) {
         <!-- Token Number Display Box -->
         <div class="grid grid-cols-2 gap-4 p-5 rounded-2xl bg-muted/40 border border-border/80 text-center">
           <div class="space-y-1">
-            <div class="text-[10px] font-bold text-muted-foreground uppercase tracking-widest">Kiosk Token No</div>
-            <div class="font-display text-3xl font-black text-primary uppercase font-mono">
-              {{ (placedOrder._id || placedOrder.id || '').slice(-6) }}
+            <div class="text-[10px] font-bold text-muted-foreground uppercase tracking-widest">
+              {{ orderType === 'takeaway' ? 'Order Type' : 'Table Number' }}
+            </div>
+            <div class="font-display text-3xl font-black text-primary uppercase">
+              {{ orderType === 'takeaway' ? 'Takeaway' : `Table ${placedOrder.tableNumber}` }}
             </div>
           </div>
           <div class="space-y-1 border-l border-border/80">
@@ -755,17 +861,17 @@ function isStepActive(target: string) {
 
           <!-- Step Indicators -->
           <div class="grid grid-cols-4 gap-1 text-[11px] font-bold text-center">
-            <div :class="[isStepActive('PENDING') ? 'text-primary' : 'text-muted-foreground/60']">
-              Received 📥
+            <div :class="[isStepActive('PENDING') ? 'text-primary font-bold' : 'text-muted-foreground/60']">
+              1. Received
             </div>
-            <div :class="[isStepActive('PREPARING') ? 'text-primary' : 'text-muted-foreground/60']">
-              Preparing 🍳
+            <div :class="[isStepActive('PREPARING') ? 'text-primary font-bold' : 'text-muted-foreground/60']">
+              2. Preparing
             </div>
-            <div :class="[isStepActive('READY') ? 'text-primary' : 'text-muted-foreground/60']">
-              Ready 🔔
+            <div :class="[isStepActive('READY') ? 'text-primary font-bold' : 'text-muted-foreground/60']">
+              3. Ready
             </div>
-            <div :class="[isStepActive('SERVED') ? 'text-primary' : 'text-muted-foreground/60']">
-              Completed 📦
+            <div :class="[isStepActive('SERVED') ? 'text-primary font-bold' : 'text-muted-foreground/60']">
+              4. Completed
             </div>
           </div>
         </div>
@@ -789,12 +895,12 @@ function isStepActive(target: string) {
                 <span class="font-medium ml-1.5">{{ it.name }}</span>
                 <span v-if="it.note" class="block text-[10px] text-muted-foreground italic ml-6">"{{ it.note }}"</span>
               </span>
-              <span class="tabular-nums font-semibold">${{ ((it.price || 0) * (it.qty || it.quantity || 1)).toFixed(2) }}</span>
+              <span class="tabular-nums font-semibold">₹{{ ((it.price || 0) * (it.qty || it.quantity || 1)).toFixed(0) }}</span>
             </div>
           </div>
           <div class="border-t border-border pt-3 flex justify-between items-center text-sm">
             <span class="text-muted-foreground text-xs">Dining: <strong>{{ placedOrder.tableNumber === 1 && orderType === 'takeaway' ? 'Takeaway' : `Table ${placedOrder.tableNumber} (Dine-In)` }}</strong></span>
-            <span class="font-bold text-lg text-foreground">Total: ${{ (placedOrder.totalAmount || 0).toFixed(2) }}</span>
+            <span class="font-bold text-lg text-foreground">Total: ₹{{ (placedOrder.totalAmount || 0).toFixed(0) }}</span>
           </div>
         </div>
 

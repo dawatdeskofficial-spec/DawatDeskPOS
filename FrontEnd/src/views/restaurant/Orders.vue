@@ -2,7 +2,7 @@
 import { ref, computed, onMounted, watch } from 'vue'
 import { 
   ShoppingBag, Receipt, Calendar, User, Clock, CreditCard, Search, RefreshCw, 
-  XCircle, CheckCircle2, ChevronRight, Utensils, AlertTriangle, ArrowLeft 
+  XCircle, CheckCircle2, ChevronRight, Utensils, AlertTriangle, ArrowLeft, X 
 } from 'lucide-vue-next'
 import { toast } from 'vue-sonner'
 import RoleLayout from '@/components/RoleLayout.vue'
@@ -17,21 +17,27 @@ import Input from '@/components/ui/Input.vue'
 const auth = useAuthStore()
 const loading = ref(true)
 const selectedId = ref<string | null>(null)
+const mobileDetailOpen = ref(false)
 const statusFilter = ref<string>('ALL')
 const searchQuery = ref<string>('')
+
+function selectOrder(id: string) {
+  selectedId.value = id
+  mobileDetailOpen.value = true
+}
 
 const orders = ref<any[]>([])
 const payments = ref<any[]>([])
 const restaurant = ref<any>(null)
 
 const STATUS_OPTIONS = [
-  { value: 'ALL', label: 'All Orders' },
-  { value: 'PENDING', label: 'Pending' },
-  { value: 'PREPARING', label: 'Preparing' },
-  { value: 'READY', label: 'Ready' },
-  { value: 'SERVED', label: 'Served' },
-  { value: 'COMPLETED', label: 'Completed (Billed)' },
-  { value: 'CANCELLED', label: 'Cancelled' }
+  { label: 'All', value: 'ALL' },
+  { label: 'Pending', value: 'PENDING' },
+  { label: 'Preparing', value: 'PREPARING' },
+  { label: 'Ready', value: 'READY' },
+  { label: 'Served', value: 'SERVED' },
+  { label: 'Completed', value: 'COMPLETED' },
+  { label: 'Cancelled', value: 'CANCELLED' },
 ]
 
 const STATUS_BADGES: Record<string, string> = {
@@ -50,24 +56,28 @@ const PAYMENT_BADGES: Record<string, string> = {
 }
 
 async function fetchOrdersData() {
-  if (!auth.user?.restaurantId) return
-  const restaurantId = typeof auth.user.restaurantId === 'string'
-    ? auth.user.restaurantId
-    : (auth.user.restaurantId as any).id || (auth.user.restaurantId as any)._id
+  const restaurantId = auth.effectiveRestaurantId
+  if (!restaurantId) return
 
   loading.value = true
   try {
     const [ordRes, payRes, restRes] = await Promise.all([
-      getOrders(restaurantId, 1, 150),
-      getPayments(restaurantId, 1, 150),
+      getOrders(restaurantId, 1, 100),
+      getPayments(restaurantId, 1, 100),
       getRestaurantById(restaurantId)
     ])
     
     orders.value = ordRes.data || []
     payments.value = payRes.data || []
     restaurant.value = restRes.data
+    
+    // Auto-select first order if none selected
+    if (!selectedId.value && orders.value.length > 0) {
+      selectedId.value = orders.value[0].id || orders.value[0]._id
+    }
   } catch (err: any) {
-    toast.error(err.message || 'Failed to load orders')
+    console.error('Failed to load orders', err)
+    toast.error('Failed to load restaurant orders.')
   } finally {
     loading.value = false
   }
@@ -96,9 +106,13 @@ const filteredOrders = computed(() => {
   if (searchQuery.value.trim()) {
     const query = searchQuery.value.toLowerCase().trim()
     list = list.filter(o => {
-      const idStr = String(o.id || o._id).toLowerCase()
-      const tblStr = String(o.tableNumber || o.table)
-      return idStr.includes(query) || tblStr.includes(query)
+      const idStr = String(o.id || o._id || '').toLowerCase()
+      const tblStr = String(o.tableNumber || o.table || '')
+      const cName = String(o.customerName || '').toLowerCase()
+      const phone = String(o.customerPhone || '').toLowerCase()
+      const waiter = String(o.createdBy?.name || '').toLowerCase()
+      const itemsMatch = (o.items || []).some((it: any) => (it.name || '').toLowerCase().includes(query))
+      return idStr.includes(query) || tblStr.includes(query) || cName.includes(query) || phone.includes(query) || waiter.includes(query) || itemsMatch
     })
   }
 
@@ -160,7 +174,7 @@ function getPaymentMethodLabel(method: string) {
       <span class="text-sm font-medium">Fetching restaurant orders…</span>
     </div>
 
-    <div v-else class="grid lg:grid-cols-[400px_1fr] gap-6">
+    <div v-else class="grid grid-cols-1 xl:grid-cols-[360px_1fr] gap-6">
       <!-- Left: Filter, search & list -->
       <div class="space-y-4">
         <!-- Search & Status Selectors -->
@@ -168,10 +182,17 @@ function getPaymentMethodLabel(method: string) {
           <div class="relative">
             <Search class="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
             <Input 
-              placeholder="Search table or order ID…" 
+              placeholder="Search table, customer, dishes, waiter…" 
               v-model="searchQuery" 
-              class="pl-9 bg-muted/40 border-border text-sm" 
+              class="pl-9 pr-8 bg-muted/40 border-border text-xs" 
             />
+            <button
+              v-if="searchQuery"
+              @click="searchQuery = ''"
+              class="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+            >
+              <X class="h-3.5 w-3.5" />
+            </button>
           </div>
 
           <div class="space-y-1.5">
@@ -210,9 +231,9 @@ function getPaymentMethodLabel(method: string) {
               v-else
               v-for="o in filteredOrders"
               :key="o.id || o._id"
-              @click="selectedId = o.id || o._id"
+              @click="selectOrder(o.id || o._id)"
               :class="[
-                'w-full p-4 text-left flex items-start justify-between transition-colors border-l-4',
+                'w-full p-4 text-left flex items-start justify-between transition-colors border-l-4 cursor-pointer',
                 selectedId === (o.id || o._id) 
                   ? 'bg-primary/5 border-primary' 
                   : 'hover:bg-muted/30 border-transparent'
@@ -225,44 +246,44 @@ function getPaymentMethodLabel(method: string) {
                     {{ o.status }}
                   </span>
                 </div>
-                <div class="text-[11px] font-mono text-muted-foreground truncate max-w-[200px]">
-                  ID: {{ o.id || o._id }}
-                </div>
                 <div class="text-[11px] text-muted-foreground">
                   Ordered {{ formatDateTime(o.createdAt) }}
                 </div>
               </div>
 
-              <div class="text-right">
-                <div class="font-bold tabular-nums text-sm">
-                  ${{ (o.totalAmount || 0).toFixed(2) }}
+              <div class="text-right flex items-center gap-2">
+                <div>
+                  <div class="font-bold tabular-nums text-sm">
+                    ₹{{ (o.totalAmount || 0).toFixed(0) }}
+                  </div>
+                  <Badge 
+                    v-if="o.paymentStatus === 'COMPLETED'" 
+                    class="bg-emerald-500/10 text-emerald-600 hover:bg-emerald-500/15 font-normal text-[10px] mt-1.5"
+                  >
+                    Paid
+                  </Badge>
+                  <Badge 
+                    v-else-if="o.status === 'CANCELLED'" 
+                    class="bg-destructive/10 text-destructive font-normal text-[10px] mt-1.5"
+                  >
+                    Void
+                  </Badge>
+                  <Badge 
+                    v-else 
+                    class="bg-amber-500/10 text-amber-600 hover:bg-amber-500/15 font-normal text-[10px] mt-1.5"
+                  >
+                    Unpaid
+                  </Badge>
                 </div>
-                <Badge 
-                  v-if="o.paymentStatus === 'COMPLETED'" 
-                  class="bg-emerald-500/10 text-emerald-600 hover:bg-emerald-500/15 font-normal text-[10px] mt-1.5"
-                >
-                  Paid
-                </Badge>
-                <Badge 
-                  v-else-if="o.status === 'CANCELLED'" 
-                  class="bg-destructive/10 text-destructive font-normal text-[10px] mt-1.5"
-                >
-                  Void
-                </Badge>
-                <Badge 
-                  v-else 
-                  class="bg-amber-500/10 text-amber-600 hover:bg-amber-500/15 font-normal text-[10px] mt-1.5"
-                >
-                  Unpaid
-                </Badge>
+                <ChevronRight class="h-4 w-4 text-muted-foreground lg:hidden" />
               </div>
             </button>
           </div>
         </div>
       </div>
 
-      <!-- Right: Detailed invoice check -->
-      <div class="space-y-4">
+      <!-- Right: Detailed invoice check (Desktop View) -->
+      <div class="hidden lg:block space-y-4">
         <div v-if="!selectedOrder" class="rounded-2xl border border-border bg-card p-20 text-center text-muted-foreground flex flex-col items-center justify-center gap-3 shadow-soft min-h-[500px]">
           <ShoppingBag class="h-10 w-10 opacity-30 text-primary" />
           <div>
@@ -286,7 +307,6 @@ function getPaymentMethodLabel(method: string) {
                   Payment: {{ selectedOrder.paymentStatus }}
                 </span>
               </div>
-              <p class="text-xs font-mono text-muted-foreground mt-1">ID: {{ selectedOrder.id || selectedOrder._id }}</p>
             </div>
 
             <div class="text-sm text-right text-muted-foreground">
@@ -296,50 +316,6 @@ function getPaymentMethodLabel(method: string) {
           </div>
 
           <div class="p-6 space-y-6 flex-1">
-            <!-- Details Grid: Metadata -->
-            <div class="grid gap-4 sm:grid-cols-2 md:grid-cols-5 bg-muted/20 border border-border rounded-xl p-4">
-              <div class="space-y-1">
-                <span class="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground block">Server/Waiter</span>
-                <div class="text-sm font-semibold flex items-center gap-1.5">
-                  <User class="h-4 w-4 text-muted-foreground" />
-                  <span>{{ selectedOrder.createdBy?.name || 'Unknown' }}</span>
-                </div>
-                <span class="text-[10px] text-muted-foreground block truncate">{{ selectedOrder.createdBy?.email || 'N/A' }}</span>
-              </div>
-
-              <div class="space-y-1">
-                <span class="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground block">Served At</span>
-                <div class="text-sm font-semibold flex items-center gap-1.5">
-                  <Clock class="h-4 w-4 text-muted-foreground" />
-                  <span>{{ selectedOrder.servedAt ? formatDateTime(selectedOrder.servedAt) : 'Not served yet' }}</span>
-                </div>
-              </div>
-
-              <div class="space-y-1">
-                <span class="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground block">Cashier</span>
-                <div class="text-sm font-semibold flex items-center gap-1.5">
-                  <User class="h-4 w-4 text-muted-foreground" />
-                  <span>{{ matchedPayment?.createdBy?.name || '—' }}</span>
-                </div>
-                <span class="text-[10px] text-muted-foreground block truncate">{{ matchedPayment?.createdBy?.email || 'N/A' }}</span>
-              </div>
-
-              <div class="space-y-1">
-                <span class="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground block">Payment Method</span>
-                <div class="text-sm font-semibold flex items-center gap-1.5">
-                  <CreditCard class="h-4 w-4 text-muted-foreground" />
-                  <span>{{ matchedPayment ? getPaymentMethodLabel(matchedPayment.paymentMethod) : '—' }}</span>
-                </div>
-              </div>
-
-              <div class="space-y-1">
-                <span class="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground block">Receipt ID</span>
-                <div class="text-sm font-semibold flex items-center gap-1.5 font-mono">
-                  <Receipt class="h-4 w-4 text-muted-foreground" />
-                  <span class="truncate">{{ matchedPayment?.receiptNumber || '—' }}</span>
-                </div>
-              </div>
-            </div>
 
             <!-- Cancel Warning Panel -->
             <div v-if="selectedOrder.status === 'CANCELLED'" class="rounded-xl border border-destructive/20 bg-destructive/5 p-4 flex gap-3 text-destructive">
@@ -384,8 +360,8 @@ function getPaymentMethodLabel(method: string) {
                         <div v-if="item.note" class="text-[11px] text-amber-600 font-normal">Note: {{ item.note }}</div>
                       </td>
                       <td class="px-4 py-3 text-center tabular-nums font-medium">{{ item.qty }}</td>
-                      <td class="px-4 py-3 text-right tabular-nums text-muted-foreground">${{ item.price.toFixed(2) }}</td>
-                      <td class="px-4 py-3 text-right tabular-nums font-semibold">${{ (item.price * item.qty).toFixed(2) }}</td>
+                      <td class="px-4 py-3 text-right tabular-nums text-muted-foreground">₹{{ item.price.toFixed(0) }}</td>
+                      <td class="px-4 py-3 text-right tabular-nums font-semibold">₹{{ (item.price * item.qty).toFixed(0) }}</td>
                       <td class="px-4 py-3 text-center">
                         <span :class="[
                           'text-[10px] font-semibold px-2 py-0.5 rounded border',
@@ -418,28 +394,119 @@ function getPaymentMethodLabel(method: string) {
             <div class="max-w-md ml-auto space-y-2 text-sm">
               <div class="flex justify-between text-muted-foreground">
                 <span>Subtotal</span>
-                <span class="tabular-nums">${{ ((selectedOrder.totalAmount - (selectedOrder.gst || 0)) + (selectedOrder.discount || 0)).toFixed(2) }}</span>
+                <span class="tabular-nums">₹{{ ((selectedOrder.totalAmount - (selectedOrder.gst || 0)) + (selectedOrder.discount || 0)).toFixed(0) }}</span>
               </div>
 
               <div v-if="selectedOrder.discount > 0" class="flex justify-between text-emerald-500 font-medium">
                 <span>Discount</span>
-                <span class="tabular-nums">-${{ selectedOrder.discount.toFixed(2) }}</span>
+                <span class="tabular-nums">-₹{{ selectedOrder.discount.toFixed(0) }}</span>
               </div>
 
               <div class="flex justify-between text-muted-foreground">
                 <span>VAT / GST ({{ restaurant?.gstPercentage ?? 5 }}%)</span>
-                <span class="tabular-nums">${{ (selectedOrder.gst || 0).toFixed(2) }}</span>
+                <span class="tabular-nums">₹{{ (selectedOrder.gst || 0).toFixed(0) }}</span>
               </div>
 
               <div class="flex justify-between font-display text-2xl font-bold pt-3 border-t border-border mt-3 text-foreground">
                 <span>Grand Total</span>
-                <span class="tabular-nums">${{ (selectedOrder.totalAmount || 0).toFixed(2) }}</span>
+                <span class="tabular-nums">₹{{ (selectedOrder.totalAmount || 0).toFixed(0) }}</span>
               </div>
             </div>
           </div>
         </div>
       </div>
     </div>
+
+    <!-- ── Mobile Full-Screen Order Detail Modal (Phone App Experience) ───── -->
+    <Teleport to="body">
+      <Transition name="fade">
+        <div
+          v-if="mobileDetailOpen && selectedOrder"
+          class="fixed inset-0 z-50 bg-background flex flex-col lg:hidden"
+        >
+          <!-- Mobile Top Header -->
+          <div class="p-3.5 border-b border-border flex items-center justify-between shrink-0 bg-muted/20">
+            <button
+              @click="mobileDetailOpen = false"
+              class="flex items-center gap-1 text-xs font-bold px-3 py-1.5 rounded-xl border border-border bg-card hover:bg-muted text-foreground shadow-2xs cursor-pointer"
+            >
+              <ArrowLeft class="h-3.5 w-3.5" />
+              <span>Back</span>
+            </button>
+
+            <div class="text-center">
+              <div class="font-bold text-sm">Table {{ selectedOrder.tableNumber || selectedOrder.table }}</div>
+              <div class="text-[10px] text-muted-foreground">{{ formatDateTime(selectedOrder.createdAt) }}</div>
+            </div>
+
+            <div class="flex items-center gap-1.5">
+              <span :class="['text-[10px] font-bold px-2 py-0.5 rounded border', STATUS_BADGES[selectedOrder.status]]">
+                {{ selectedOrder.status }}
+              </span>
+            </div>
+          </div>
+
+          <!-- Mobile Scrollable Body -->
+          <div class="flex-1 overflow-y-auto p-4 space-y-4">
+            <!-- Cancelled Alert -->
+            <div v-if="selectedOrder.status === 'CANCELLED'" class="p-3 rounded-xl bg-destructive/10 border border-destructive/20 text-destructive text-xs space-y-1">
+              <div class="font-bold flex items-center gap-1"><XCircle class="h-3.5 w-3.5" /> Order Cancelled</div>
+              <div>Reason: {{ selectedOrder.cancelReason || 'None specified' }}</div>
+            </div>
+
+            <!-- Ordered Dishes List -->
+            <div class="space-y-2">
+              <h4 class="text-xs font-bold uppercase tracking-wider text-muted-foreground">Dishes ({{ selectedOrder.items?.length || 0 }})</h4>
+              <div class="divide-y divide-border/60 rounded-xl border border-border bg-card overflow-hidden">
+                <div
+                  v-for="it in (selectedOrder.items || [])"
+                  :key="it.id"
+                  class="p-3 flex items-center justify-between gap-2"
+                >
+                  <div class="min-w-0 flex-1">
+                    <div class="font-semibold text-xs text-foreground truncate">{{ it.qty }}× {{ it.name }}</div>
+                    <div v-if="it.note" class="text-[10px] text-amber-600">Note: {{ it.note }}</div>
+                    <div class="text-[10px] text-muted-foreground mt-0.5">₹{{ it.price.toFixed(0) }} each</div>
+                  </div>
+                  <div class="text-right shrink-0">
+                    <div class="font-bold text-xs tabular-nums">₹{{ (it.price * it.qty).toFixed(0) }}</div>
+                    <span :class="['text-[9px] font-semibold px-1.5 py-0.2 rounded border', it.status === 'READY' ? 'bg-success/10 text-success' : 'bg-muted text-muted-foreground']">
+                      {{ it.status || 'Active' }}
+                    </span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Notes -->
+            <div v-if="selectedOrder.notes" class="p-3 rounded-xl bg-muted/20 border border-border text-xs">
+              <span class="font-bold block text-muted-foreground text-[10px] uppercase mb-1">Notes</span>
+              <p class="text-foreground/90">{{ selectedOrder.notes }}</p>
+            </div>
+          </div>
+
+          <!-- Mobile Pinned Invoice Totals -->
+          <div class="p-4 border-t border-border bg-card shrink-0 space-y-1 text-xs shadow-lg">
+            <div class="flex justify-between text-muted-foreground">
+              <span>Subtotal</span>
+              <span class="tabular-nums font-medium">₹{{ ((selectedOrder.totalAmount - (selectedOrder.gst || 0)) + (selectedOrder.discount || 0)).toFixed(0) }}</span>
+            </div>
+            <div v-if="selectedOrder.discount > 0" class="flex justify-between text-emerald-600 font-medium">
+              <span>Discount</span>
+              <span class="tabular-nums font-bold">− ₹{{ selectedOrder.discount.toFixed(0) }}</span>
+            </div>
+            <div class="flex justify-between text-muted-foreground">
+              <span>GST ({{ restaurant?.gstPercentage ?? 5 }}%)</span>
+              <span class="tabular-nums font-medium">₹{{ (selectedOrder.gst || 0).toFixed(0) }}</span>
+            </div>
+            <div class="flex justify-between font-display text-base font-extrabold pt-2 border-t border-border text-foreground">
+              <span>Grand Total</span>
+              <span class="text-primary font-black text-lg tabular-nums">₹{{ (selectedOrder.totalAmount || 0).toFixed(0) }}</span>
+            </div>
+          </div>
+        </div>
+      </Transition>
+    </Teleport>
   </RoleLayout>
 </template>
 

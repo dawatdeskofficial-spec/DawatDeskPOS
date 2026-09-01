@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
-import { Plus, Edit3, Trash2 } from 'lucide-vue-next'
+import { Plus, Edit3, Trash2, Search, X } from 'lucide-vue-next'
 import RoleLayout from '@/components/RoleLayout.vue'
 import PageHeader from '@/components/PageHeader.vue'
 import { adminNav } from '@/lib/nav'
@@ -38,6 +38,8 @@ const users = ref<BackendUser[]>([])
 const restaurants = ref<any[]>([])
 const loading = ref(true)
 const auth = useAuthStore()
+const searchQuery = ref('')
+const selectedRole = ref('ALL')
 
 const activeUser = ref<BackendUser | null>(null)
 const isDialogOpen = ref(false)
@@ -199,6 +201,26 @@ const userColumns = computed(() => {
   }))
 })
 
+const filteredUsers = computed(() => {
+  let list = userColumns.value
+  if (selectedRole.value !== 'ALL') {
+    list = list.filter(u => (u.role || '').toLowerCase() === selectedRole.value.toLowerCase())
+  }
+  if (searchQuery.value.trim()) {
+    const q = searchQuery.value.toLowerCase().trim()
+    list = list.filter(u => {
+      const name = (u.name || '').toLowerCase()
+      const email = (u.email || '').toLowerCase()
+      const phone = (u.phone || '').toLowerCase()
+      const location = (u.location || '').toLowerCase()
+      const restName = (u.restaurantName || '').toLowerCase()
+      const role = (u.role || '').toLowerCase()
+      return name.includes(q) || email.includes(q) || phone.includes(q) || location.includes(q) || restName.includes(q) || role.includes(q)
+    })
+  }
+  return list
+})
+
 function formatDate(ds: string) {
   if (!ds) return ""
   return new Date(ds).toLocaleDateString()
@@ -222,6 +244,52 @@ function formatDate(ds: string) {
       {{ error }}
     </div>
 
+    <!-- Search & Role Ribbon -->
+    <div class="mb-4 rounded-2xl bg-card border border-border shadow-soft p-4 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
+      <div class="relative flex-1 max-w-md">
+        <Search class="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+        <Input
+          v-model="searchQuery"
+          placeholder="Search user by name, email, role, phone, or restaurant…"
+          class="pl-10 pr-9 h-10 text-xs bg-muted/30 border-border"
+        />
+        <button
+          v-if="searchQuery"
+          @click="searchQuery = ''"
+          class="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+        >
+          <X class="h-3.5 w-3.5" />
+        </button>
+      </div>
+
+      <!-- Role Filter -->
+      <div class="flex items-center gap-1.5 overflow-x-auto pb-1 sm:pb-0 scrollbar-none">
+        <button
+          v-for="roleOption in [
+            { label: 'All Users', value: 'ALL' },
+            { label: 'Admins', value: 'main_admin' },
+            { label: 'Managers', value: 'restaurant_admin' },
+            { label: 'Waiters', value: 'waiter' },
+            { label: 'Chefs', value: 'chef' },
+            { label: 'Cashiers', value: 'cashier' }
+          ]"
+          :key="roleOption.value"
+          @click="selectedRole = roleOption.value"
+          :class="[
+            'px-3 py-1.5 rounded-xl text-xs font-semibold whitespace-nowrap transition border',
+            selectedRole === roleOption.value
+              ? 'gradient-primary text-primary-foreground border-transparent shadow-xs'
+              : 'bg-muted/40 border-border text-muted-foreground hover:text-foreground'
+          ]"
+        >
+          {{ roleOption.label }}
+        </button>
+        <span class="text-xs text-muted-foreground font-medium ml-1 hidden md:inline">
+          ({{ filteredUsers.length }})
+        </span>
+      </div>
+    </div>
+
     <div class="overflow-x-auto rounded-2xl bg-card border border-border shadow-soft">
       <table class="min-w-full text-sm">
         <thead class="bg-muted/40 text-muted-foreground text-xs uppercase tracking-wider">
@@ -241,7 +309,13 @@ function formatDate(ds: string) {
           <tr v-else-if="userColumns.length === 0">
             <td colspan="6" class="px-5 py-10 text-center text-muted-foreground">No users found.</td>
           </tr>
-          <tr v-else v-for="user in userColumns" :key="user.id || (user as any)._id" class="border-t border-border hover:bg-muted/30 transition-colors">
+          <tr v-else-if="filteredUsers.length === 0">
+            <td colspan="6" class="px-5 py-10 text-center text-muted-foreground">
+              No users matching "{{ searchQuery }}".
+              <button @click="searchQuery = ''; selectedRole = 'ALL'" class="text-primary underline ml-1 text-xs">Reset</button>
+            </td>
+          </tr>
+          <tr v-else v-for="user in filteredUsers" :key="user.id || (user as any)._id" class="border-t border-border hover:bg-muted/30 transition-colors">
             <td class="px-5 py-4 font-medium flex items-center gap-3">
               <div class="h-9 w-9 rounded-full gradient-primary grid place-items-center text-primary-foreground text-xs font-semibold">
                 {{ user.name?.[0] ?? "U" }}

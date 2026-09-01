@@ -57,6 +57,18 @@ const validateRestaurant = [
     .withMessage('Please provide a valid phone number'),
 ];
 
+const validateCategory = [
+  body('name')
+    .notEmpty()
+    .withMessage('Category name is required')
+    .isLength({ min: 2 })
+    .withMessage('Category name must be at least 2 characters'),
+  body('restaurantId')
+    .optional()
+    .isMongoId()
+    .withMessage('Invalid restaurant ID'),
+];
+
 const validateMenuItem = [
   body('name')
     .notEmpty()
@@ -69,10 +81,13 @@ const validateMenuItem = [
     .isFloat({ min: 0 })
     .withMessage('Price must be a positive number'),
   body('category')
-    .notEmpty()
-    .withMessage('Category is required')
-    .isIn(['APPETIZER', 'MAIN_COURSE', 'DESSERT', 'BEVERAGE', 'SIDES'])
-    .withMessage('Invalid category'),
+    .optional()
+    .isString()
+    .withMessage('Category must be a string'),
+  body('categoryId')
+    .optional()
+    .isMongoId()
+    .withMessage('Invalid category ID'),
   body('fulfillmentOwner')
     .optional()
     .isIn(['KITCHEN', 'WAITER'])
@@ -81,10 +96,26 @@ const validateMenuItem = [
 
 const validateOrder = [
   body('tableNumber')
-    .notEmpty()
-    .withMessage('Table number is required')
-    .isInt({ min: 1 })
-    .withMessage('Table number must be a positive number'),
+    .custom((value, { req }) => {
+      if (req.body && req.body.orderType === 'PARCEL') {
+        return true;
+      }
+      const num = parseInt(value, 10);
+      if (isNaN(num) || num < 1) {
+        throw new Error('Table number must be a positive number');
+      }
+      return true;
+    }),
+  body('orderType')
+    .optional()
+    .isIn(['DINE_IN', 'PARCEL'])
+    .withMessage('Invalid order type'),
+  body('customerName')
+    .optional()
+    .isString(),
+  body('customerPhone')
+    .optional()
+    .isString(),
 ];
 
 const validateOrderItem = [
@@ -113,13 +144,38 @@ const validatePayment = [
     .withMessage('Invalid payment method'),
 ];
 
+const validateWaitingQueue = [
+  body('customerName')
+    .notEmpty()
+    .withMessage('Customer name is required')
+    .trim()
+    .isLength({ min: 1 })
+    .withMessage('Customer name is required'),
+  body('partySize')
+    .optional()
+    .isInt({ min: 1 })
+    .withMessage('Party size must be at least 1'),
+  body('customerPhone')
+    .optional()
+    .isString(),
+  body('notes')
+    .optional()
+    .isString(),
+  body('priority')
+    .optional()
+    .isIn(['NORMAL', 'VIP', 'HIGH'])
+    .withMessage('Invalid priority level'),
+];
+
 module.exports = {
   handleValidationErrors,
   validateLogin,
   validateSignup,
   validateRestaurant,
+  validateCategory,
   validateMenuItem,
   validateOrder,
   validateOrderItem,
   validatePayment,
+  validateWaitingQueue,
 };

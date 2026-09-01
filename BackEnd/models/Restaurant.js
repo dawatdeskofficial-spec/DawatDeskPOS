@@ -39,6 +39,11 @@ const restaurantSchema = new mongoose.Schema(
       type: Number,
       default: 20,
     },
+    tableCapacities: {
+      type: Map,
+      of: Number,
+      default: {},
+    },
     gstPercentage: {
       type: Number,
       default: 5,

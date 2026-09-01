@@ -1,21 +1,31 @@
+require('dotenv').config();
+
 const mongoose = require('mongoose');
 const logger = require('../utils/logger');
 
 const connectDB = async () => {
   try {
-    const mongoURI = process.env.MONGO_URI;
-    
-    if (!mongoURI) {
-      throw new Error('MONGO_URI is not defined in environment variables');
+    if (!process.env.MONGODB_URI) {
+      throw new Error('MONGODB_URI is not defined in environment variables');
     }
 
-    await mongoose.connect(mongoURI);
+    console.log('MongoDB URI configured: true');
 
-    logger.info('MongoDB connected successfully');
-    return mongoose.connection;
+    await mongoose.connect(process.env.MONGODB_URI, {
+      family: 4,
+      serverSelectionTimeoutMS: 15000,
+    });
+
+    const host = mongoose.connection.host || 'unknown-host';
+    const message = `✅ MongoDB Atlas connected successfully: ${host}`;
+    console.log(message);
+    logger.info(message);
   } catch (error) {
-    logger.error(`MongoDB connection error: ${error.message}`);
-    process.exit(1);
+    const message = error && error.message ? error.message : String(error);
+    const errorMessage = `❌ MongoDB Atlas Connection Error: ${message}`;
+    console.error(errorMessage);
+    logger.error(errorMessage);
+    throw error;
   }
 };
 

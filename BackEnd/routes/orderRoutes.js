@@ -11,7 +11,7 @@ const { normalizeRole } = require('../utils/constants');
 router.post(
   '/',
   authenticate,
-  authorize('WAITER', 'MAIN_ADMIN', 'RESTAURANT_ADMIN'),
+  authorize('WAITER', 'CASHIER', 'MAIN_ADMIN', 'RESTAURANT_ADMIN'),
   validateRestaurantOwnership(),
   validateOrder,
   handleValidationErrors,
@@ -35,11 +35,11 @@ router.get('/:id', authenticate, validateRestaurantOwnership('order'), (req, res
   orderController.getOrderById(req, res);
 });
 
-// Add item to order (WAITER only)
+// Add item to order (WAITER, CASHIER, ADMIN)
 router.post(
   '/:orderId/items',
   authenticate,
-  authorize('WAITER', 'MAIN_ADMIN', 'RESTAURANT_ADMIN'),
+  authorize('WAITER', 'CASHIER', 'MAIN_ADMIN', 'RESTAURANT_ADMIN'),
   validateRestaurantOwnership('order'),
   validateOrderItem,
   handleValidationErrors,
@@ -48,30 +48,41 @@ router.post(
   }
 );
 
+// Update item quantity in order
+router.put(
+  '/:orderId/items/:itemId',
+  authenticate,
+  authorize('WAITER', 'CASHIER', 'MAIN_ADMIN', 'RESTAURANT_ADMIN'),
+  validateRestaurantOwnership('order'),
+  (req, res) => {
+    orderController.updateOrderItemQuantity(req, res);
+  }
+);
+
 // Update order status by role.
 router.put('/:id/status', authenticate, validateRestaurantOwnership('order'), (req, res) => {
   const userRole = normalizeRole(req.user.role);
   const { status } = req.body;
 
-  // CHEF can only prepare kitchen tickets and mark them ready.
+  // CHEF can prepare kitchen tickets, mark them ready, or mark as served directly
   if (
     userRole === 'CHEF' &&
-    !['PREPARING', 'READY'].includes(status)
+    !['PREPARING', 'READY', 'SERVED'].includes(status)
   ) {
     return res.status(403).json({
       success: false,
-      message: 'Chef can only update to PREPARING or READY status',
+      message: 'Chef can only update to PREPARING, READY, or SERVED status',
     });
   }
 
-  // WAITER serves ready kitchen tickets to the customer.
+  // WAITER serves ready tickets or updates ticket statuses
   if (
     userRole === 'WAITER' &&
-    status !== 'SERVED'
+    !['PREPARING', 'READY', 'SERVED'].includes(status)
   ) {
     return res.status(403).json({
       success: false,
-      message: 'Waiter can only update ready items to SERVED status',
+      message: 'Waiter can only update to PREPARING, READY, or SERVED status',
     });
   }
 
@@ -93,7 +104,7 @@ router.put('/:id/status', authenticate, validateRestaurantOwnership('order'), (r
 router.delete(
   '/:orderId/items/:itemId',
   authenticate,
-  authorize('WAITER', 'MAIN_ADMIN', 'RESTAURANT_ADMIN'),
+  authorize('WAITER', 'CASHIER', 'MAIN_ADMIN', 'RESTAURANT_ADMIN'),
   validateRestaurantOwnership('order'),
   (req, res) => {
     orderController.removeItemFromOrder(req, res);

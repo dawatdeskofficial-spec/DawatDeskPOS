@@ -6,11 +6,11 @@ const { authorize } = require('../middlewares/authorize');
 const validateRestaurantOwnership = require('../middlewares/validateRestaurantOwnership');
 const { validatePayment, handleValidationErrors } = require('../validators/index');
 
-// Create payment (CASHIER only)
+// Create payment (CASHIER, RESTAURANT_ADMIN, MAIN_ADMIN, WAITER)
 router.post(
   '/',
   authenticate,
-  authorize('CASHIER', 'MAIN_ADMIN'),
+  authorize('CASHIER', 'RESTAURANT_ADMIN', 'MAIN_ADMIN', 'WAITER'),
   validateRestaurantOwnership('payment'),
   validatePayment,
   handleValidationErrors,
@@ -29,11 +29,11 @@ router.get('/:id', authenticate, validateRestaurantOwnership('payment'), (req, r
   paymentController.getPaymentById(req, res);
 });
 
-// Update payment status (CASHIER only)
+// Update payment status (CASHIER, RESTAURANT_ADMIN, MAIN_ADMIN)
 router.put(
   '/:id/status',
   authenticate,
-  authorize('CASHIER', 'MAIN_ADMIN'),
+  authorize('CASHIER', 'RESTAURANT_ADMIN', 'MAIN_ADMIN'),
   validateRestaurantOwnership('payment'),
   (req, res) => {
     paymentController.updatePaymentStatus(req, res);

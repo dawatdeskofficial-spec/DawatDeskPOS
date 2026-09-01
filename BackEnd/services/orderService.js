@@ -10,23 +10,32 @@ const mongoose = require('mongoose');
 class OrderService {
   async syncOrderStatusFromItems(orderId) {
     const items = await OrderItem.find({ orderId });
-    const statuses = items.map((item) => item.status);
+    if (!items || items.length === 0) return Order.findById(orderId);
 
-    let status = ORDER_STATUS.PENDING;
-    let servedAt;
-
-    if (items.length > 0 && statuses.every((itemStatus) => itemStatus === 'DELIVERED')) {
-      status = ORDER_STATUS.SERVED;
-      servedAt = new Date();
-    } else if (statuses.some((itemStatus) => itemStatus === 'PREPARING')) {
-      status = ORDER_STATUS.PREPARING;
-    } else if (statuses.some((itemStatus) => itemStatus === 'PENDING')) {
-      status = ORDER_STATUS.PENDING;
-    } else if (statuses.some((itemStatus) => itemStatus === 'READY')) {
-      status = ORDER_STATUS.READY;
+    const activeItems = items.filter((item) => item.status !== 'CANCELLED');
+    if (!activeItems || activeItems.length === 0) {
+      return Order.findById(orderId);
     }
 
-    const update = { status, servedAt: servedAt || null };
+    const statuses = activeItems.map((item) => item.status);
+    let status = ORDER_STATUS.PENDING;
+    let servedAt = null;
+
+    if (statuses.length > 0 && statuses.every((itemStatus) => itemStatus === 'DELIVERED')) {
+      status = ORDER_STATUS.SERVED;
+      const currentOrder = await Order.findById(orderId).select('servedAt');
+      servedAt = currentOrder?.servedAt || new Date();
+    } else if (statuses.every((itemStatus) => itemStatus === 'READY' || itemStatus === 'DELIVERED')) {
+      // ALL active items are ready (or delivered)! Waiter can pick up full order.
+      status = ORDER_STATUS.READY;
+    } else if (statuses.some((itemStatus) => itemStatus === 'READY' || itemStatus === 'PREPARING')) {
+      // Partially ready or currently being cooked
+      status = ORDER_STATUS.PREPARING;
+    } else {
+      status = ORDER_STATUS.PENDING;
+    }
+
+    const update = { status, servedAt };
 
     return Order.findByIdAndUpdate(orderId, update, { new: true });
   }
@@ -101,20 +110,34 @@ class OrderService {
       if (!restaurant) {
         throw new Error('Restaurant not found');
       }
-      if (Number(orderFields.tableNumber) > restaurant.maxTables) {
-        throw new Error(`Table number cannot exceed ${restaurant.maxTables}`);
+      const isParcel = orderFields.orderType === 'PARCEL';
+
+      if (!isParcel) {
+        if (!orderFields.tableNumber || Number(orderFields.tableNumber) < 1) {
+          throw new Error('Table number is required for dine-in orders');
+        }
+        if (Number(orderFields.tableNumber) > restaurant.maxTables) {
+          throw new Error(`Table number cannot exceed ${restaurant.maxTables}`);
+        }
+      } else {
+        orderFields.tableNumber = 0;
+        orderFields.orderType = 'PARCEL';
       }
 
-      let order = await Order.findOne({
-        restaurantId: orderFields.restaurantId,
-        tableNumber: orderFields.tableNumber,
-        status: { $nin: ['COMPLETED', 'CANCELLED'] }
-      });
+      let order = null;
+      if (!isParcel) {
+        order = await Order.findOne({
+          restaurantId: orderFields.restaurantId,
+          tableNumber: orderFields.tableNumber,
+          orderType: { $ne: 'PARCEL' },
+          status: { $nin: ['COMPLETED', 'CANCELLED'] }
+        });
+      }
 
       if (!order) {
         order = new Order(orderFields);
         await order.save();
-        logger.info(`Order created: ${order._id}`);
+        logger.info(`Order created: ${order._id} (Type: ${order.orderType || 'DINE_IN'})`);
       } else {
         logger.info(`Reusing active order: ${order._id} for table ${orderFields.tableNumber}`);
       }
@@ -174,17 +197,20 @@ class OrderService {
     }
   }
 
-  // Get orders by restaurant (with pagination)
   async getOrdersByRestaurant(restaurantId, page = 1, limit = 20, status = null) {
     try {
       const skip = (page - 1) * limit;
-      const query = { restaurantId };
+      const query = {};
+      if (restaurantId && restaurantId !== 'all') {
+        query.restaurantId = restaurantId;
+      }
 
       if (status) {
         query.status = status;
       }
 
       const orders = await Order.find(query)
+        .populate('restaurantId', 'name location city')
         .populate('createdBy', 'name email role')
         .sort({ createdAt: -1 })
         .limit(limit)
@@ -301,11 +327,7 @@ class OrderService {
 
       // Update order total
       await this.updateOrderTotal(orderId);
-
-      if (menuItem.fulfillmentOwner !== 'WAITER') {
-        await this.syncOrderStatusFromItems(orderId);
-        logger.info(`Order reopened for kitchen: ${orderId}`);
-      }
+      await this.syncOrderStatusFromItems(orderId);
 
       return orderItem;
     } catch (error) {
@@ -350,35 +372,32 @@ class OrderService {
       }
 
       if (newStatus === ORDER_STATUS.PREPARING) {
-        if (validItemIds.length === 0) {
-          throw new Error('Chef must select a specific item to start preparing');
-        }
-        await this.updateItemsForStatus(
-          orderId,
-          batchFilter,
-          'PENDING',
-          'PREPARING'
+        const filter = validItemIds.length > 0 ? { _id: { $in: validItemIds } } : {};
+        await OrderItem.updateMany(
+          { orderId, ...filter, status: { $in: ['PENDING', 'READY'] } },
+          { status: 'PREPARING' }
         );
         updatedOrder = await this.syncOrderStatusFromItems(orderId);
       } else if (newStatus === ORDER_STATUS.READY) {
-        if (validItemIds.length === 0) {
-          throw new Error('Chef must select a specific item to mark ready');
-        }
-        await this.updateItemsForStatus(
-          orderId,
-          batchFilter,
-          'PREPARING',
-          'READY'
+        const filter = validItemIds.length > 0 ? { _id: { $in: validItemIds } } : {};
+        // Can mark ready from PENDING or PREPARING
+        await OrderItem.updateMany(
+          { orderId, ...filter, status: { $in: ['PENDING', 'PREPARING'] } },
+          { status: 'READY' }
         );
         updatedOrder = await this.syncOrderStatusFromItems(orderId);
       } else if (newStatus === ORDER_STATUS.SERVED) {
-        await this.updateItemsForStatus(
-          orderId,
-          batchFilter,
-          'READY',
-          'DELIVERED'
+        // Waiter/chef serves the order — mark all active items as DELIVERED
+        const serveFilter = validItemIds.length > 0 ? { _id: { $in: validItemIds } } : {};
+        await OrderItem.updateMany(
+          { orderId, ...serveFilter, status: { $in: ['PENDING', 'PREPARING', 'READY'] } },
+          { status: 'DELIVERED' }
         );
         updatedOrder = await this.syncOrderStatusFromItems(orderId);
+        await Order.findByIdAndUpdate(orderId, {
+          status: ORDER_STATUS.SERVED,
+          servedAt: order.servedAt || new Date()
+        });
       } else {
         updatedOrder = await Order.findByIdAndUpdate(
           orderId,
@@ -392,7 +411,7 @@ class OrderService {
       }
 
       logger.info(`Order status updated: ${orderId} -> ${newStatus}`);
-      return this.getOrderById(updatedOrder._id);
+      return this.getOrderById(orderId);
     } catch (error) {
       logger.error(`Update order status error: ${error.message}`);
       throw error;
@@ -402,9 +421,9 @@ class OrderService {
   // Update order total
   async updateOrderTotal(orderId) {
     try {
-      const orderItems = await OrderItem.find({ orderId });
+      const orderItems = await OrderItem.find({ orderId, status: { $ne: 'CANCELLED' } });
       const subtotal = orderItems.reduce(
-        (sum, item) => sum + item.price * item.quantity,
+        (sum, item) => sum + (Number(item.price) || 0) * (Number(item.quantity) || 1),
         0
       );
 
@@ -425,6 +444,44 @@ class OrderService {
     }
   }
 
+  // Update item quantity in order
+  async updateOrderItemQuantity(orderId, orderItemId, quantity) {
+    try {
+      const order = await Order.findById(orderId);
+      if (!order) {
+        throw new Error('Order not found');
+      }
+
+      if (['COMPLETED', 'CANCELLED'].includes(order.status)) {
+        throw new Error('Cannot edit a completed or cancelled order');
+      }
+
+      const parsedQty = parseInt(quantity, 10);
+      if (isNaN(parsedQty) || parsedQty <= 0) {
+        return this.removeItemFromOrder(orderId, orderItemId);
+      }
+
+      const orderItem = await OrderItem.findByIdAndUpdate(
+        orderItemId,
+        { quantity: parsedQty },
+        { new: true }
+      );
+
+      if (!orderItem) {
+        throw new Error('Order item not found');
+      }
+
+      // Update order total
+      await this.updateOrderTotal(orderId);
+
+      logger.info(`Item quantity updated: ${orderId} / ${orderItemId} -> ${parsedQty}`);
+      return orderItem;
+    } catch (error) {
+      logger.error(`Update item quantity error: ${error.message}`);
+      throw error;
+    }
+  }
+
   // Remove item from order
   async removeItemFromOrder(orderId, orderItemId) {
     try {
@@ -433,8 +490,8 @@ class OrderService {
         throw new Error('Order not found');
       }
 
-      if (order.status !== ORDER_STATUS.PENDING) {
-        throw new Error('Order cannot be edited after the kitchen starts preparing it');
+      if (['COMPLETED', 'CANCELLED'].includes(order.status)) {
+        throw new Error('Cannot edit a completed or cancelled order');
       }
 
       const orderItem = await OrderItem.findByIdAndDelete(orderItemId);
@@ -522,7 +579,7 @@ class OrderService {
       );
 
       logger.info(`Order cancelled: ${orderId}`);
-      return this.getOrderById(updatedOrder._id);
+      return this.getOrderById(orderId);
     } catch (error) {
       logger.error(`Cancel order error: ${error.message}`);
       throw error;
