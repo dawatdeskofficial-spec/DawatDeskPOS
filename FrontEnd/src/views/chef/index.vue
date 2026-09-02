@@ -115,7 +115,7 @@ async function toggleItemReady(order: any, item: any) {
     if (!isCurrentlyReady) {
       toast.success(`✓ ${item.name} marked Ready!`)
     }
-    await fetchKitchenData()
+    fetchKitchenData()
   } catch (err: any) {
     toast.error(err.message || "Failed to update item status")
   } finally {
@@ -133,7 +133,7 @@ async function markAllReady(order: any) {
     const itemIds = (order.kitchenItems || []).map((it: any) => it.id || it._id)
     await updateOrderStatus(id, 'READY', undefined, itemIds.length > 0 ? itemIds : undefined)
     toast.success(`🔔 ${label} is completely READY! Waiter / Cashier notified.`)
-    await fetchKitchenData()
+    fetchKitchenData()
   } catch (err: any) {
     toast.error(err.message || "Failed to update status")
   } finally {
@@ -150,7 +150,7 @@ async function serveOrderDirectly(order: any) {
     const label = isParcel ? `Parcel (${order.customerName || 'Takeaway'})` : `Table ${order.tableNumber}`
     await updateOrderStatus(id, 'SERVED')
     toast.success(`✓ ${label} marked as Handed Over / Served!`)
-    await fetchKitchenData()
+    fetchKitchenData()
   } catch (err: any) {
     toast.error(err.message || "Failed to mark as served")
   } finally {
@@ -393,7 +393,7 @@ async function startPreparing(order: any) {
       console.error("Print feature failed:", e)
     }
 
-    await fetchKitchenData()
+    fetchKitchenData()
   } catch (err: any) {
     toast.error(err.message || "Failed to start preparing")
   } finally {

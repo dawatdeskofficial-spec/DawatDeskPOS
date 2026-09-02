@@ -240,7 +240,7 @@ async function handleAddToQueue() {
     addQueueDialogOpen.value = false
     newCustomerName.value = ''
     newPartySize.value = 2
-    await fetchDashboard()
+    fetchDashboard()
   } catch (err: any) {
     toast.error(err.message || 'Failed to add customer to queue')
   } finally {
@@ -254,7 +254,7 @@ async function handleCallCustomer(entry: WaitingQueueEntry) {
   try {
     await updateWaitingQueueEntry(id, { status: 'CALLED' })
     toast.success(`🔔 Called ${entry.customerName}! Customer notified.`)
-    await fetchDashboard()
+    fetchDashboard()
   } catch (err: any) {
     toast.error(err.message || 'Failed to call customer')
   }
@@ -297,7 +297,7 @@ async function handleQuickSeat(entry: WaitingQueueEntry) {
   try {
     await seatWaitingCustomer(id, targetTable)
     toast.success(`🎉 Seated ${entry.customerName} at Table ${targetTable}! Table allocated & customer removed from queue.`)
-    await fetchDashboard()
+    fetchDashboard()
   } catch (err: any) {
     toast.error(err.message || 'Failed to seat customer')
   } finally {
@@ -328,7 +328,7 @@ async function handleSeatCustomer() {
     seatCustomerModal.value = false
     selectedQueueEntry.value = null
     targetTableNumber.value = null
-    await fetchDashboard()
+    fetchDashboard()
   } catch (err: any) {
     toast.error(err.message || 'Failed to seat customer')
   } finally {
@@ -342,7 +342,7 @@ async function handleCancelQueue(entry: WaitingQueueEntry) {
   try {
     await deleteWaitingQueueEntry(id)
     toast.info(`Removed ${entry.customerName} from queue`)
-    await fetchDashboard()
+    fetchDashboard()
   } catch (err: any) {
     toast.error(err.message || 'Failed to remove queue entry')
   }
@@ -446,7 +446,7 @@ async function handleCreateParcelOrder(settleNow = false) {
     parcelNotes.value = ''
     parcelCart.value = []
 
-    await fetchDashboard()
+    fetchDashboard()
 
     if (settleNow && orderId) {
       activeTab.value = 'billing'
@@ -685,7 +685,7 @@ async function saveEdits() {
     toast.success("Bill updated successfully!")
     editMode.value          = false
     addItemDialogOpen.value = false
-    await fetchDashboard()
+    fetchDashboard()
   } catch (err: any) {
     toast.error(err.message || "Failed to save bill changes")
   } finally {
@@ -732,7 +732,7 @@ async function handleCompletePayment() {
     mobileInvoiceOpen.value = false
     cashGiven.value         = ''
     discountInput.value     = ''
-    await fetchDashboard()
+    fetchDashboard()
   } catch (err: any) {
     toast.error(err.message || 'Payment failed')
   } finally {

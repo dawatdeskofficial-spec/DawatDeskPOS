@@ -40,7 +40,7 @@ function changeLanguage(code: string) {
   } else {
     document.cookie = `googtrans=/en/${code}; path=/;`
   }
-  window.location.reload()
+  window.location.href = '/'
 }
 </script>
 
