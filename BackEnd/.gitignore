@@ -1,0 +1,54 @@
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.DS_Store
+Thumbs.db
+
+# Environment & Secrets
+.env
+.env.local
+.env.*.local
+!.env.example
+
+# Logs
+logs/
+*.log
+menu_add.log
+
+# Build
+dist/
+build/
+.cache/
+coverage/
+
+# Editor
+.vscode/
+.idea/
+
+# Temp files
+*.swp
+*.swo
+*~
+.~*
+.npm/
+.eslintcache
+.node_repl_history
+*.tgz
+.yarn-integrity
+
+# Scratch & test scripts (dev-only)
+scratch.js
+scratch2.js
+scratch3.js
+testUsers.js
+testAllFeatures.js
+testLogin.js
+check_admin.js
+verifyNavjivan.js
+addColdDrinkCan.js
+reactivate.js
+createAdmin.js
+setupMainAdmin.js
+fix_data.js
+seedDosaMenu.js
