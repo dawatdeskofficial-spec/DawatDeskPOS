@@ -384,14 +384,14 @@ function formatTime(ts: string) {
     <div class="flex-1 flex flex-col min-w-0">
       <header class="h-16 border-b border-border flex items-center justify-between gap-2 px-4 lg:px-6 bg-card/80 backdrop-blur-md sticky top-0 z-50">
         <!-- Left: Brand / Title -->
-        <div class="flex items-center gap-2.5 min-w-0">
+        <div class="flex items-center gap-1.5 sm:gap-2.5 min-w-0 flex-1">
           <!-- Waiter Direct Header Logo -->
-          <div v-if="role === 'waiter'" class="flex items-center gap-2.5">
-            <div class="h-9 w-9 rounded-[10px] overflow-hidden border border-border/70 shadow-sm shrink-0 bg-white">
+          <div v-if="role === 'waiter'" class="flex items-center gap-2 sm:gap-2.5 min-w-0">
+            <div class="h-8 w-8 sm:h-9 sm:w-9 rounded-[10px] overflow-hidden border border-border/70 shadow-sm shrink-0 bg-white">
               <img src="/dawatdesk_logo.png" alt="DawatDesk Logo" class="h-full w-full object-cover hover:scale-105 transition-transform duration-300" />
             </div>
             <div class="leading-tight min-w-0">
-              <div class="font-brand text-[20px] font-bold tracking-tight truncate max-w-[150px] sm:max-w-xs">{{ displayBrand }}</div>
+              <div class="font-brand text-lg sm:text-[20px] font-bold tracking-tight truncate">{{ displayBrand }}</div>
               <div class="text-[10px] uppercase font-black tracking-widest text-primary flex items-center gap-1">
                 <span>Waiter POS</span>
                 <span class="inline-block w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
@@ -412,10 +412,10 @@ function formatTime(ts: string) {
           </template>
         </div>
 
-        <div class="flex items-center gap-2">
+        <div class="flex items-center gap-1 sm:gap-2 shrink-0">
           <LanguageSwitcher />
 
-          <Button variant="ghost" size="icon" class="h-9 w-9" @click="dark = !dark">
+          <Button variant="ghost" size="icon" class="h-8 w-8 sm:h-9 sm:w-9" @click="dark = !dark">
             <Sun v-if="dark" class="h-4 w-4" />
             <Moon v-else class="h-4 w-4" />
           </Button>
@@ -449,7 +449,7 @@ function formatTime(ts: string) {
             <Transition name="notif">
               <div
                 v-if="notifOpen"
-                class="absolute right-0 top-full mt-2.5 w-80 sm:w-96 rounded-2xl bg-card border border-border shadow-2xl overflow-hidden z-50"
+                class="fixed left-3 right-3 top-16 sm:absolute sm:left-auto sm:right-0 sm:top-full sm:mt-2.5 sm:w-96 max-h-[85vh] rounded-2xl bg-card border border-border shadow-2xl flex flex-col z-50 overflow-hidden"
               >
                 <!-- Header -->
                 <div class="px-4 py-3 border-b border-border flex items-center justify-between bg-muted/30">
