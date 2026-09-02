@@ -407,9 +407,6 @@ function formatTime(ts: string) {
             
             <!-- Mobile/Tablet Brand (Visible when Sidebar is hidden) -->
             <div class="lg:hidden flex items-center gap-2 min-w-0 ml-0.5">
-              <div class="h-7 w-7 sm:h-8 sm:w-8 rounded-[8px] overflow-hidden border border-border/70 shadow-sm shrink-0 bg-white">
-                <img src="/dawatdesk_logo.png" alt="DawatDesk Logo" class="h-full w-full object-cover" />
-              </div>
               <div class="font-brand text-base sm:text-lg font-bold tracking-tight truncate flex-1">{{ displayBrand }}</div>
             </div>
 
