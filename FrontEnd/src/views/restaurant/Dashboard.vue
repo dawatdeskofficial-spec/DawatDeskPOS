@@ -364,7 +364,7 @@ function timeSince(ts: string) {
           <Badge variant="outline" class="gap-1.5 px-2.5 py-1 border-success/30 text-success bg-success/5 font-semibold">
             <span class="pulse-dot" /> Live
           </Badge>
-          <Button variant="ghost" size="sm" class="h-9 px-3" @click="fetchDashboardData">
+          <Button variant="ghost" size="sm" class="h-9 px-3" @click="fetchDynamicDashboardData()">
             <RefreshCw :class="['h-4 w-4 mr-2', loading && 'animate-spin']" /> Sync Data
           </Button>
         </div>
@@ -393,7 +393,7 @@ function timeSince(ts: string) {
                 <span class="pulse-dot" /> Live Ops
               </Badge>
               <button
-                @click="fetchDashboardData"
+                @click="fetchDynamicDashboardData()"
                 class="h-8 w-8 rounded-xl border border-border bg-muted/30 hover:bg-muted text-muted-foreground flex items-center justify-center transition cursor-pointer"
                 title="Refresh Live Data"
               >

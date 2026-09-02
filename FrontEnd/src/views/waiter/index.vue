@@ -249,7 +249,7 @@ async function place() {
     orderNotes.value = ''
     table.value = null
     mobileCartOpen.value = false
-    loadData()
+    loadDynamicData()
   } catch (err: any) {
     toast.error(err.message || 'Failed to place order')
   } finally {
@@ -265,7 +265,7 @@ async function handleServe(orderId: string, tableNumber: number, isParcel = fals
     } else {
       toast.success(`Table ${tableNumber} marked as served!`)
     }
-    loadData()
+    loadDynamicData()
   } catch (err: any) {
     toast.error(err.message || 'Failed to mark as served')
   }
