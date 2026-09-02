@@ -405,16 +405,16 @@ function formatTime(ts: string) {
               <Menu class="h-5 w-5" />
             </button>
             
-            <!-- Mobile Brand (Visible when Breadcrumbs are hidden on small screens) -->
-            <div class="md:hidden flex items-center gap-2 min-w-0 ml-0.5">
+            <!-- Mobile/Tablet Brand (Visible when Sidebar is hidden) -->
+            <div class="lg:hidden flex items-center gap-2 min-w-0 ml-0.5">
               <div class="h-7 w-7 sm:h-8 sm:w-8 rounded-[8px] overflow-hidden border border-border/70 shadow-sm shrink-0 bg-white">
                 <img src="/dawatdesk_logo.png" alt="DawatDesk Logo" class="h-full w-full object-cover" />
               </div>
               <div class="font-brand text-base sm:text-lg font-bold tracking-tight truncate flex-1">{{ displayBrand }}</div>
             </div>
 
-            <!-- Breadcrumbs -->
-            <div class="hidden md:flex items-center gap-2 text-sm font-medium text-muted-foreground ml-2 select-none">
+            <!-- Breadcrumbs (Visible when Sidebar is present) -->
+            <div class="hidden lg:flex items-center gap-2 text-sm font-medium text-muted-foreground ml-2 select-none">
               <span class="text-foreground/40 font-semibold uppercase tracking-wider text-[11px]">{{ displayBrand }}</span>
               <span class="text-foreground/20">/</span>
               <span class="text-foreground font-semibold">{{ breadcrumbs.map(c => c.label).join(' / ') }}</span>
