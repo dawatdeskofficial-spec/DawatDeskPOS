@@ -52,6 +52,17 @@ app.get('/health', (req, res) => {
   });
 });
 
+// Serverless DB Connection Middleware
+app.use(async (req, res, next) => {
+  try {
+    await connectDB();
+    next();
+  } catch (error) {
+    logger.error(`Database connection failed before routing: ${error.message}`);
+    res.status(500).json({ success: false, message: 'Database connection failed' });
+  }
+});
+
 // API Routes
 app.use('/api/auth', authRoutes);
 app.use('/api/restaurants', restaurantRoutes);
