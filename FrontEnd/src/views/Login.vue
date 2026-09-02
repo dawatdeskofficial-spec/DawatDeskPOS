@@ -30,6 +30,7 @@ const email = ref(demoCredentials.main_admin.email)
 const password = ref(demoCredentials.main_admin.password)
 const forgot = ref(false)
 const error = ref('')
+const isLoading = ref(false)
 
 onMounted(() => {
   if (auth.user) {
@@ -44,7 +45,10 @@ watch(selected, (newRole) => {
 })
 
 async function submit() {
+  if (isLoading.value) return
   error.value = ''
+  isLoading.value = true
+  
   try {
     let loginEmail = email.value.trim()
     if (!loginEmail.includes('@')) {
@@ -56,11 +60,16 @@ async function submit() {
     }
   } catch (err: any) {
     error.value = err.message || "Failed to sign in"
+  } finally {
+    isLoading.value = false
   }
 }
 
 async function launchKioskDemo() {
+  if (isLoading.value) return
   error.value = ''
+  isLoading.value = true
+  
   try {
     const creds = demoCredentials.waiter
     await auth.signIn(creds.email, creds.password)
@@ -69,6 +78,8 @@ async function launchKioskDemo() {
     }
   } catch (err: any) {
     error.value = err.message || "Failed to launch kiosk mode"
+  } finally {
+    isLoading.value = false
   }
 }
 </script>
@@ -193,8 +204,8 @@ async function launchKioskDemo() {
               <Input type="password" v-model="password" required />
             </div>
             <div v-if="error" class="text-sm text-destructive font-medium">{{ error }}</div>
-            <Button type="submit" class="w-full h-11 gradient-primary text-primary-foreground font-semibold shadow-glow hover:opacity-90">
-              Sign in to {{ ROLE_LABELS[selected] }}
+            <Button type="submit" :disabled="isLoading" class="w-full h-11 gradient-primary text-primary-foreground font-semibold shadow-glow hover:opacity-90">
+              {{ isLoading ? 'Signing in...' : `Sign in to ${ROLE_LABELS[selected]}` }}
             </Button>
           </form>
 
