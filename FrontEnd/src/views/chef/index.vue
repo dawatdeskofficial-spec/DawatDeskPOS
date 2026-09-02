@@ -48,6 +48,24 @@ function isUrgent(ts: string) {
   return diff > 15 * 60 * 1000 // > 15 minutes
 }
 
+async function fetchStaticKitchenData() {
+  if (!auth.user?.restaurantId) return
+  const restaurantId = typeof auth.user.restaurantId === 'string' 
+    ? auth.user.restaurantId 
+    : (auth.user.restaurantId as any).id || (auth.user.restaurantId as any)._id
+
+  try {
+    const [menuRes, catRes] = await Promise.all([
+      getMenuItems(restaurantId, 1, 500),
+      getCategoriesByRestaurant(restaurantId),
+    ])
+    menuItems.value = menuRes.data || []
+    categories.value = catRes.data || []
+  } catch (err) {
+    console.error("Failed to load static kitchen data", err)
+  }
+}
+
 async function fetchKitchenData() {
   if (!auth.user?.restaurantId) return
   const restaurantId = typeof auth.user.restaurantId === 'string' 
@@ -55,22 +73,17 @@ async function fetchKitchenData() {
     : (auth.user.restaurantId as any).id || (auth.user.restaurantId as any)._id
 
   try {
-    const [ordersRes, menuRes, catRes] = await Promise.all([
-      getOrders(restaurantId, 1, 100),
-      getMenuItems(restaurantId, 1, 500),
-      getCategoriesByRestaurant(restaurantId),
-    ])
+    const ordersRes = await getOrders(restaurantId, 1, 100)
     orders.value = ordersRes.data || []
-    menuItems.value = menuRes.data || []
-    categories.value = catRes.data || []
   } catch (err) {
-    console.error("Failed to load kitchen data", err)
+    console.error("Failed to load dynamic kitchen data", err)
   } finally {
     loading.value = false
   }
 }
 
 onMounted(() => {
+  fetchStaticKitchenData()
   fetchKitchenData()
   interval = setInterval(() => {
     tick.value++

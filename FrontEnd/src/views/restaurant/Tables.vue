@@ -40,26 +40,39 @@ const restaurantId = computed(() => {
   return auth.effectiveRestaurantId || ""
 })
 
-async function fetchTablesData(silent = false) {
+async function fetchStaticTablesData() {
+  if (!restaurantId.value) return
+  try {
+    const restRes = await getRestaurantById(restaurantId.value)
+    restaurant.value = restRes.data
+  } catch (err: any) {
+    console.error('Failed to load floor tables static configuration', err)
+  }
+}
+
+async function fetchDynamicTablesData(silent = false) {
   if (!restaurantId.value) return
   if (!silent) loading.value = true
   try {
-    const [restRes, ordersRes] = await Promise.all([
-      getRestaurantById(restaurantId.value),
-      getOrders(restaurantId.value, 1, 100)
-    ])
-    restaurant.value = restRes.data
+    const ordersRes = await getOrders(restaurantId.value, 1, 100)
     orders.value = ordersRes.data || []
   } catch (err: any) {
-    toast.error(err.message || 'Failed to load floor tables configuration')
+    console.error('Failed to load floor tables dynamic configuration', err)
   } finally {
     if (!silent) loading.value = false
   }
 }
 
+async function fetchTablesData(silent = false) {
+  await Promise.all([
+    fetchStaticTablesData(),
+    fetchDynamicTablesData(silent)
+  ])
+}
+
 onMounted(() => {
   fetchTablesData()
-  interval = setInterval(() => fetchTablesData(true), 5000)
+  interval = setInterval(() => fetchDynamicTablesData(true), 5000)
 })
 
 onUnmounted(() => {

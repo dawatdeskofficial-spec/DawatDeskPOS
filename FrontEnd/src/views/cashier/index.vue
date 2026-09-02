@@ -108,6 +108,26 @@ const parcelSubmitting    = ref(false)
 let interval: any
 
 // ── Data fetching ─────────────────────────────────────────────────────────────
+async function fetchStaticDashboard() {
+  if (!auth.user?.restaurantId) return
+  const restaurantId =
+    typeof auth.user.restaurantId === 'string'
+      ? auth.user.restaurantId
+      : (auth.user.restaurantId as any).id || (auth.user.restaurantId as any)._id
+  try {
+    const [restRes, menuRes, catRes] = await Promise.all([
+      getRestaurantById(restaurantId),
+      getMenuItems(restaurantId, 1, 500),
+      getCategoriesByRestaurant(restaurantId),
+    ])
+    restaurant.value   = restRes.data
+    menuItems.value    = menuRes.data || []
+    categories.value   = catRes.data || []
+  } catch (err) {
+    console.error(err)
+  }
+}
+
 async function fetchDashboard() {
   if (!auth.user?.restaurantId) return
   const restaurantId =
@@ -115,19 +135,13 @@ async function fetchDashboard() {
       ? auth.user.restaurantId
       : (auth.user.restaurantId as any).id || (auth.user.restaurantId as any)._id
   try {
-    const [ordRes, payRes, restRes, menuRes, catRes, queueRes] = await Promise.all([
+    const [ordRes, payRes, queueRes] = await Promise.all([
       getOrders(restaurantId, 1, 100),
       getPayments(restaurantId, 1, 50),
-      getRestaurantById(restaurantId),
-      getMenuItems(restaurantId, 1, 500),
-      getCategoriesByRestaurant(restaurantId),
       getWaitingQueue(restaurantId, undefined, false),
     ])
     orders.value       = ordRes.data || []
     transactions.value = payRes.data || []
-    restaurant.value   = restRes.data
-    menuItems.value    = menuRes.data || []
-    categories.value   = catRes.data || []
     waitingList.value  = queueRes.data || []
   } catch (err) {
     console.error(err)
@@ -137,6 +151,7 @@ async function fetchDashboard() {
 }
 
 onMounted(() => {
+  fetchStaticDashboard()
   fetchDashboard()
   interval = setInterval(fetchDashboard, 5000)
 })

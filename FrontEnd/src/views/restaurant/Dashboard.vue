@@ -40,32 +40,46 @@ const TABLE_TONE: Record<string, string> = {
   reserved: "border-warning/30 bg-warning/5 text-warning",
 }
 
-async function fetchDashboardData() {
+async function fetchStaticDashboardData() {
   const restaurantId = auth.effectiveRestaurantId
   if (!restaurantId) return
 
   try {
-    const [ordRes, payRes, restRes, staffRes] = await Promise.all([
-      getOrders(restaurantId, 1, 100),
-      getPayments(restaurantId, 1, 100),
+    const [restRes, staffRes] = await Promise.all([
       getRestaurantById(restaurantId),
       getUsersByRestaurant(restaurantId, 1, 100)
     ])
     
-    orders.value = ordRes.data || []
-    payments.value = payRes.data || []
     restaurant.value = restRes.data
     staffList.value = staffRes.data || []
   } catch (err: any) {
-    console.error('Failed to load restaurant dashboard data', err)
+    console.error('Failed to load static restaurant dashboard data', err)
+  }
+}
+
+async function fetchDynamicDashboardData() {
+  const restaurantId = auth.effectiveRestaurantId
+  if (!restaurantId) return
+
+  try {
+    const [ordRes, payRes] = await Promise.all([
+      getOrders(restaurantId, 1, 100),
+      getPayments(restaurantId, 1, 100)
+    ])
+    
+    orders.value = ordRes.data || []
+    payments.value = payRes.data || []
+  } catch (err: any) {
+    console.error('Failed to load dynamic restaurant dashboard data', err)
   } finally {
     loading.value = false
   }
 }
 
 onMounted(() => {
-  fetchDashboardData()
-  interval = setInterval(fetchDashboardData, 5000)
+  fetchStaticDashboardData()
+  fetchDynamicDashboardData()
+  interval = setInterval(fetchDynamicDashboardData, 5000)
 })
 
 onUnmounted(() => {

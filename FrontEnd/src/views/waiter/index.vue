@@ -57,7 +57,7 @@ const historySearch = ref('')
 const tableSearchQuery = ref('')
 const tableStatusFilter = ref<'ALL' | 'available' | 'occupied'>('ALL')
 
-async function loadData() {
+async function loadStaticData() {
   if (!auth.user?.restaurantId) return
   const restaurantId =
     typeof auth.user.restaurantId === 'string'
@@ -65,16 +65,54 @@ async function loadData() {
       : (auth.user.restaurantId as any).id || (auth.user.restaurantId as any)._id
 
   try {
-    const [menuRes, ordersRes, restaurantRes, categoryRes, queueRes] = await Promise.all([
+    const [menuRes, restaurantRes, categoryRes] = await Promise.all([
       getMenuItems(restaurantId),
-      getOrders(restaurantId, 1, 100),
       getRestaurantById(restaurantId),
       getCategoriesByRestaurant(restaurantId),
-      getWaitingQueue(restaurantId).catch(() => ({ data: [] })),
     ])
 
     const restaurant = restaurantRes.data as any
     maxTables.value = restaurant?.maxTables || 20
+
+    const categoryList: MenuCategory[] = categoryRes.data || []
+    const categoryById = new Map(
+      categoryList.map((c) => [c._id || c.id, c])
+    )
+    menuItems.value = (menuRes.data || []).map((m: any) => {
+      const categoryId =
+        typeof m.categoryId === 'string'
+          ? m.categoryId
+          : m.categoryId?._id || m.categoryId?.id || ''
+      return {
+        ...m,
+        id: m._id || m.id,
+        categoryId,
+        categoryName:
+          typeof m.categoryId === 'object' && m.categoryId?.name
+            ? m.categoryId.name
+            : categoryById.get(categoryId)?.name || m.category || 'Uncategorized',
+        emoji: m.image || '🍴',
+        available: m.isAvailable ?? true,
+      }
+    })
+    menuCategories.value = categoryList
+  } catch (err) {
+    console.error(err)
+  }
+}
+
+async function loadDynamicData() {
+  if (!auth.user?.restaurantId) return
+  const restaurantId =
+    typeof auth.user.restaurantId === 'string'
+      ? auth.user.restaurantId
+      : (auth.user.restaurantId as any).id || (auth.user.restaurantId as any)._id
+
+  try {
+    const [ordersRes, queueRes] = await Promise.all([
+      getOrders(restaurantId, 1, 100),
+      getWaitingQueue(restaurantId).catch(() => ({ data: [] })),
+    ])
 
     const rawOrders = ordersRes.data || []
 
@@ -94,7 +132,7 @@ async function loadData() {
         const desc = isParcel
           ? `${itemCount} item${itemCount !== 1 ? 's' : ''} packed in kitchen — ready for handover.`
           : `${itemCount} item${itemCount !== 1 ? 's' : ''} waiting in kitchen — pick up now.`
-
+        
         toast.success(title, { description: desc, duration: 8000 })
       }
     })
@@ -137,29 +175,6 @@ async function loadData() {
       number: i + 1,
       status: activeTables.has(i + 1) ? 'occupied' : 'available',
     }))
-
-    const categoryList: MenuCategory[] = categoryRes.data || []
-    const categoryById = new Map(
-      categoryList.map((c) => [c._id || c.id, c])
-    )
-    menuItems.value = (menuRes.data || []).map((m: any) => {
-      const categoryId =
-        typeof m.categoryId === 'string'
-          ? m.categoryId
-          : m.categoryId?._id || m.categoryId?.id || ''
-      return {
-        ...m,
-        id: m._id || m.id,
-        categoryId,
-        categoryName:
-          typeof m.categoryId === 'object' && m.categoryId?.name
-            ? m.categoryId.name
-            : categoryById.get(categoryId)?.name || m.category || 'Uncategorized',
-        emoji: m.image || '🍴',
-        available: m.isAvailable ?? true,
-      }
-    })
-    menuCategories.value = categoryList
   } catch (err) {
     console.error(err)
   } finally {
@@ -168,8 +183,9 @@ async function loadData() {
 }
 
 onMounted(() => {
-  loadData()
-  interval = setInterval(loadData, 5000)
+  loadStaticData()
+  loadDynamicData()
+  interval = setInterval(loadDynamicData, 5000)
 })
 onUnmounted(() => clearInterval(interval))
 
