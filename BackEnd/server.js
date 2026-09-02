@@ -81,17 +81,25 @@ const startServer = async () => {
   try {
     await connectDB();
 
-    app.listen(PORT, () => {
-      logger.info(`Server started successfully on port ${PORT}`);
-      console.log(`\n🚀 Server is running on http://localhost:${PORT}`);
-      console.log(`📝 API Base URL: http://localhost:${PORT}/api`);
-      console.log(`✅ Health Check: http://localhost:${PORT}/health`);
-    });
+    // Only start explicit listener if not running on Vercel serverless
+    if (!process.env.VERCEL) {
+      app.listen(PORT, () => {
+        logger.info(`Server started successfully on port ${PORT}`);
+        console.log(`\n🚀 Server is running on http://localhost:${PORT}`);
+        console.log(`📝 API Base URL: http://localhost:${PORT}/api`);
+        console.log(`✅ Health Check: http://localhost:${PORT}/health`);
+      });
+    } else {
+       console.log(`\n🚀 Vercel Serverless API initialized`);
+    }
   } catch (error) {
     const message = error && error.message ? error.message : String(error);
-    console.error(`Server startup failed: ${message}`);
+    console.error(`Server startup failed (DB connection?): ${message}`);
     logger.error(`Server startup failed: ${message}`);
-    process.exit(1);
+    // Do not process.exit(1) on serverless environments to prevent "Function Crashed" errors
+    if (!process.env.VERCEL) {
+      process.exit(1);
+    }
   }
 };
 
