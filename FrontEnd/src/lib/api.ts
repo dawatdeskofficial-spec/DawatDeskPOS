@@ -31,7 +31,10 @@ export const saveToken = (token: string | null) => {
 };
 
 const buildUrl = (path: string) => {
-  return path.startsWith("http") ? path : `${API_BASE_URL}${path}`;
+  if (path.startsWith("http")) return path;
+  const base = API_BASE_URL.replace(/\/$/, "");
+  const normalizedPath = path.startsWith("/") ? path : `/${path}`;
+  return `${base}${normalizedPath}`;
 };
 
 import { toast } from "vue-sonner";
@@ -46,21 +49,21 @@ const parseResponse = async (response: Response) => {
   }
 
   if (!response.ok) {
-    const errorData = data as { message?: unknown; errors?: Array<{msg?: string}> };
+    const errorData = data as { message?: unknown; errors?: Array<{ msg?: string }> };
     let message = errorData.message || response.statusText || "Request failed";
-    
+
     if (errorData.errors && Array.isArray(errorData.errors) && errorData.errors.length > 0) {
       const details = errorData.errors.map(e => e.msg).filter(Boolean).join(", ");
       if (details) {
         message = `${message}: ${details}`;
       }
     }
-    
+
     const errorMessage = typeof message === "string" ? message : JSON.stringify(message);
-    
+
     // Show toast notification for API errors
     toast.error(errorMessage);
-    
+
     throw new Error(errorMessage);
   }
 
