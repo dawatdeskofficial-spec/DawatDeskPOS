@@ -646,7 +646,7 @@ function formatTime(ts: string) {
         </div>
       </div>
 
-      <div v-if="loading" class="grid grid-cols-4 sm:grid-cols-6 md:grid-cols-8 lg:grid-cols-10 gap-2.5">
+      <div v-if="loading" class="grid grid-cols-3 sm:grid-cols-6 md:grid-cols-8 lg:grid-cols-10 gap-2.5">
         <div v-for="i in 16" :key="i" class="aspect-square rounded-2xl bg-muted/40 animate-pulse" />
       </div>
       <div v-else-if="filteredTables.length === 0" class="rounded-3xl border-2 border-dashed border-border p-10 text-center text-muted-foreground">
@@ -654,7 +654,7 @@ function formatTime(ts: string) {
         <p class="font-semibold text-xs sm:text-sm">No tables match "{{ tableSearchQuery }}"</p>
         <Button size="sm" variant="ghost" class="mt-2 text-xs" @click="tableSearchQuery = ''; tableStatusFilter = 'ALL'">Reset Filter</Button>
       </div>
-      <div v-else class="grid grid-cols-4 sm:grid-cols-6 md:grid-cols-8 lg:grid-cols-10 gap-2.5">
+      <div v-else class="grid grid-cols-3 sm:grid-cols-6 md:grid-cols-8 lg:grid-cols-10 gap-2.5">
         <button
           v-for="t in filteredTables"
           :key="t.id"

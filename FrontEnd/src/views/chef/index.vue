@@ -741,7 +741,7 @@ function formatTime(ts: string) {
           </span>
         </div>
 
-        <div class="grid grid-cols-[repeat(auto-fill,minmax(280px,1fr))] gap-3.5 items-start">
+        <div class="grid grid-cols-[repeat(auto-fill,minmax(250px,1fr))] gap-3.5 items-start">
           <div v-if="completedOrders.length === 0" class="col-span-full rounded-2xl border-2 border-dashed border-border p-12 text-center text-muted-foreground">
             No completed orders to show.
           </div>
@@ -838,7 +838,7 @@ function formatTime(ts: string) {
         <Button size="sm" variant="ghost" class="mt-2 text-xs" @click="activeSearch = ''">Clear Search</Button>
       </div>
 
-      <div v-else class="grid grid-cols-[repeat(auto-fill,minmax(280px,1fr))] gap-3.5 items-start">
+      <div v-else class="grid grid-cols-[repeat(auto-fill,minmax(250px,1fr))] gap-3.5 items-start">
         <div
           v-for="o in filteredQueueOrders"
           :key="o.id || o._id"

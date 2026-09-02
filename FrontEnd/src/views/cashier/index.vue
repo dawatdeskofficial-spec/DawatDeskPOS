@@ -527,6 +527,10 @@ watch(selectedId, () => {
 
 function selectOrder(orderId: string) {
   selectedId.value = orderId
+  // Automatically open the invoice modal on mobile viewports for quick access
+  if (window.innerWidth < 1280) {
+    mobileInvoiceOpen.value = true
+  }
 }
 
 watch(method, () => { cashGiven.value = '' })
@@ -950,7 +954,7 @@ const paymentMethods = [
     <!-- TAB 1: BILLING & ORDERS                                                 -->
     <!-- ═══════════════════════════════════════════════════════════════════════ -->
     <div v-if="activeTab === 'billing'">
-      <div class="grid grid-cols-1 xl:grid-cols-[1fr_400px] gap-6 pb-16 xl:pb-0">
+      <div class="grid grid-cols-1 xl:grid-cols-[1fr_400px] gap-6 pb-28 xl:pb-0">
 
       <!-- Left: Active Orders List -->
       <div class="space-y-6">
