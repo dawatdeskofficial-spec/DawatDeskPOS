@@ -5,10 +5,12 @@ import RoleLayout from '@/components/RoleLayout.vue'
 import PageHeader from '@/components/PageHeader.vue'
 import Button from '@/components/ui/Button.vue'
 import Input from '@/components/ui/Input.vue'
-import { useAuthStore, ROLE_LABELS, type AppRole } from '@/stores/auth'
+import { useRouter } from 'vue-router'
+import { useAuthStore, ROLE_LABELS, ROLE_HOMES, type AppRole } from '@/stores/auth'
 import { adminNav, restaurantNav, waiterNav, chefNav, cashierNav } from '@/lib/nav'
 
 const auth = useAuthStore()
+const router = useRouter()
 
 const roleNavMap: Record<AppRole, typeof adminNav> = {
   main_admin: adminNav,
@@ -62,7 +64,13 @@ async function handleSubmit() {
 
 <template>
   <RoleLayout v-if="auth.user" :role="auth.user.role" :nav="roleNavMap[auth.user.role]">
-    <PageHeader title="My Profile" subtitle="Manage your personal information and account settings." />
+    <PageHeader title="My Profile" subtitle="Manage your personal information and account settings.">
+      <template #action>
+        <Button variant="outline" class="h-9 px-4 gap-2 font-semibold" @click="router.push(ROLE_HOMES[auth.user.role])">
+          ← Back to Dashboard
+        </Button>
+      </template>
+    </PageHeader>
 
     <div class="max-w-5xl">
       <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
