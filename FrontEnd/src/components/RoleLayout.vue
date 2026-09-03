@@ -4,7 +4,7 @@ import { useRouter, useRoute } from 'vue-router'
 import { useAuthStore, ROLE_LABELS, ROLE_HOMES, type AppRole } from '@/stores/auth'
 import { getRestaurantById, getOrders, updateOrderStatus } from '@/lib/api'
 import {
-  Bell, BellRing, ChevronDown, LogOut, Menu, Moon, Sun,
+  Bell, BellRing, ChevronDown, LogOut, Menu, Moon, Sun, Globe,
   User as UserIcon, UtensilsCrossed, X, CheckCircle2, Clock, ConciergeBell
 } from 'lucide-vue-next'
 import DropdownMenu from '@/components/ui/DropdownMenu.vue'
@@ -42,6 +42,7 @@ const open = ref(false)
 const dark = ref(false)
 const restaurantName = ref(props.brand)
 const notifOpen = ref(false)
+const showMobileLanguageMenu = ref(false)
 
 // ── Notification system (waiter only) ───────────────────────────────────────
 const readyOrders = ref<any[]>([])
@@ -237,6 +238,16 @@ const breadcrumbs = computed(() => {
   })
 })
 
+function changeLanguage(code: string) {
+  if (code === 'en') {
+    document.cookie = 'googtrans=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;'
+    document.cookie = 'googtrans=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/; domain=' + window.location.hostname + ';'
+  } else {
+    document.cookie = `googtrans=/en/${code}; path=/;`
+  }
+  window.location.href = '/'
+}
+
 function formatTime(ts: string) {
   return new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
 }
@@ -420,9 +431,11 @@ function formatTime(ts: string) {
         </div>
 
         <div class="flex items-center gap-1 sm:gap-2 shrink-0">
-          <LanguageSwitcher />
+          <div class="hidden sm:block">
+            <LanguageSwitcher />
+          </div>
 
-          <Button variant="ghost" size="icon" class="h-8 w-8 sm:h-9 sm:w-9" @click="dark = !dark">
+          <Button variant="ghost" size="icon" class="hidden sm:flex h-8 w-8 sm:h-9 sm:w-9" @click="dark = !dark">
             <Sun v-if="dark" class="h-4 w-4" />
             <Moon v-else class="h-4 w-4" />
           </Button>
@@ -539,6 +552,41 @@ function formatTime(ts: string) {
                 <div class="text-xs text-muted-foreground font-normal">{{ auth.user.email }}</div>
                 <Badge variant="secondary" class="mt-2 font-normal">{{ ROLE_LABELS[role] }}</Badge>
               </DropdownMenuLabel>
+
+              <!-- Mobile Appearance & Language Settings -->
+              <div class="sm:hidden">
+                <DropdownMenuSeparator />
+                
+                <template v-if="!showMobileLanguageMenu">
+                  <DropdownMenuItem @select.prevent="dark = !dark">
+                    <Moon v-if="!dark" class="h-4 w-4 mr-2" />
+                    <Sun v-else class="h-4 w-4 mr-2" />
+                    {{ dark ? 'Light Mode' : 'Dark Mode' }}
+                  </DropdownMenuItem>
+                  
+                  <DropdownMenuItem @select.prevent="showMobileLanguageMenu = true" class="justify-between">
+                    <span class="flex items-center"><Globe class="h-4 w-4 mr-2" /> Language</span>
+                    <ChevronDown class="h-4 w-4 -rotate-90 text-muted-foreground" />
+                  </DropdownMenuItem>
+                </template>
+
+                <template v-else>
+                  <DropdownMenuItem @select.prevent="showMobileLanguageMenu = false" class="text-muted-foreground font-semibold">
+                    <ChevronDown class="h-4 w-4 rotate-90 mr-2" /> Back
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem @select="changeLanguage('en')" class="justify-between pl-8">
+                    <span class="flex items-center gap-2">English</span> <span class="text-lg leading-none">🇬🇧</span>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem @select="changeLanguage('hi')" class="justify-between pl-8">
+                    <span class="flex items-center gap-2">हिन्दी</span> <span class="text-lg leading-none">🇮🇳</span>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem @select="changeLanguage('gu')" class="justify-between pl-8">
+                    <span class="flex items-center gap-2">ગુજરાતી</span> <span class="text-lg leading-none">🇮🇳</span>
+                  </DropdownMenuItem>
+                </template>
+              </div>
+
               <DropdownMenuSeparator />
               <DropdownMenuItem @select="router.push('/profile')">
                 <UserIcon class="h-4 w-4 mr-2" /> Profile
