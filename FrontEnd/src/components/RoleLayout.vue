@@ -17,6 +17,14 @@ import Button from '@/components/ui/Button.vue'
 import Badge from '@/components/ui/Badge.vue'
 import { toast } from 'vue-sonner'
 import LanguageSwitcher from '@/components/LanguageSwitcher.vue'
+import AlertDialog from '@/components/ui/AlertDialog.vue'
+import AlertDialogContent from '@/components/ui/AlertDialogContent.vue'
+import AlertDialogHeader from '@/components/ui/AlertDialogHeader.vue'
+import AlertDialogTitle from '@/components/ui/AlertDialogTitle.vue'
+import AlertDialogDescription from '@/components/ui/AlertDialogDescription.vue'
+import AlertDialogFooter from '@/components/ui/AlertDialogFooter.vue'
+import AlertDialogCancel from '@/components/ui/AlertDialogCancel.vue'
+import AlertDialogAction from '@/components/ui/AlertDialogAction.vue'
 
 import { restaurantNav, adminNav } from '@/lib/nav'
 
@@ -43,6 +51,7 @@ const dark = ref(false)
 const restaurantName = ref(props.brand)
 const notifOpen = ref(false)
 const showMobileLanguageMenu = ref(false)
+const showLogoutConfirm = ref(false)
 
 // ── Notification system (waiter only) ───────────────────────────────────────
 const readyOrders = ref<any[]>([])
@@ -221,7 +230,12 @@ function handlePopState() {
   }
 }
 
-async function handleLogout() {
+function handleLogout() {
+  showLogoutConfirm.value = true
+}
+
+async function executeLogout() {
+  showLogoutConfirm.value = false
   clearInterval(notifInterval)
   await auth.signOut()
   router.push('/login')
@@ -618,6 +632,25 @@ function formatTime(ts: string) {
 
       <main class="flex-1 p-4 lg:p-6 animate-fade-in"><slot /></main>
     </div>
+
+    <!-- Sign-out Confirmation Dialog -->
+    <AlertDialog :open="showLogoutConfirm" @update:open="showLogoutConfirm = $event">
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>Are you sure you want to sign out?</AlertDialogTitle>
+          <AlertDialogDescription>
+            You will be returned to the login screen and will need to authenticate again to access the dashboard.
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel @click="showLogoutConfirm = false">No, Cancel</AlertDialogCancel>
+          <AlertDialogAction variant="destructive" @click="executeLogout">
+            Yes, Sign Out
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+
   </div>
 </template>
 

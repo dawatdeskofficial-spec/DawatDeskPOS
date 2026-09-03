@@ -637,8 +637,7 @@ async function moveCategory(index: number, direction: -1 | 1) {
               <Input type="number" step="0.01" min="0" v-model="formState.price" required />
             </label>
           </div>
-          <div class="grid gap-4 md:grid-cols-2">
-            <label class="space-y-1.5 text-sm font-medium flex flex-col">
+          <label class="space-y-1.5 text-sm font-medium flex flex-col">
               <span>Category</span>
               <select
                 :value="formState.categoryId"
@@ -653,17 +652,6 @@ async function moveCategory(index: number, direction: -1 | 1) {
                 <option value="__create__">+ Create New Category</option>
               </select>
             </label>
-            <label class="space-y-1.5 text-sm font-medium flex flex-col">
-              <span>Prepared By</span>
-              <select
-                v-model="formState.fulfillmentOwner"
-                class="flex h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-              >
-                <option value="KITCHEN">Kitchen (Chef)</option>
-                <option value="WAITER">Front of House (Waiter)</option>
-              </select>
-            </label>
-          </div>
           <label class="space-y-1.5 text-sm font-medium flex flex-col">
             <span>Description</span>
             <Input v-model="formState.description" />
