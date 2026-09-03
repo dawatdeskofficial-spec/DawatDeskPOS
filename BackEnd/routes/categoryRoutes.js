@@ -5,15 +5,16 @@ const authenticate = require('../middlewares/authenticate');
 const { authorize } = require('../middlewares/authorize');
 const validateRestaurantOwnership = require('../middlewares/validateRestaurantOwnership');
 const { validateCategory, handleValidationErrors } = require('../validators/index');
+const cacheMiddleware = require('../middlewares/cacheMiddleware');
 
 // Public routes for customers/self-ordering
-router.get('/public/restaurant/:restaurantId', (req, res) => {
+router.get('/public/restaurant/:restaurantId', cacheMiddleware('category', 60), (req, res) => {
   req.isPublicCategoryRequest = true;
   categoryController.getCategoriesByRestaurant(req, res);
 });
 
 // Authenticated restaurant-scoped routes
-router.get('/restaurant/:restaurantId', authenticate, validateRestaurantOwnership('restaurant'), (req, res) => {
+router.get('/restaurant/:restaurantId', authenticate, validateRestaurantOwnership('restaurant'), cacheMiddleware('category', 300), (req, res) => {
   categoryController.getCategoriesByRestaurant(req, res);
 });
 

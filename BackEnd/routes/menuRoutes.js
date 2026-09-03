@@ -5,6 +5,7 @@ const authenticate = require('../middlewares/authenticate');
 const { authorize } = require('../middlewares/authorize');
 const validateRestaurantOwnership = require('../middlewares/validateRestaurantOwnership');
 const { validateMenuItem, handleValidationErrors } = require('../validators/index');
+const cacheMiddleware = require('../middlewares/cacheMiddleware');
 
 // Create menu item (RESTAURANT_ADMIN only)
 router.post(
@@ -20,13 +21,13 @@ router.post(
 );
 
 // Public menu for customer ordering
-router.get('/public/restaurant/:restaurantId', (req, res) => {
+router.get('/public/restaurant/:restaurantId', cacheMiddleware('menu', 60), (req, res) => {
   req.isPublicMenuRequest = true;
   menuController.getMenuItems(req, res);
 });
 
 // Get menu items by restaurant
-router.get('/restaurant/:restaurantId', authenticate, validateRestaurantOwnership(), (req, res) => {
+router.get('/restaurant/:restaurantId', authenticate, validateRestaurantOwnership(), cacheMiddleware('menu', 300), (req, res) => {
   menuController.getMenuItems(req, res);
 });
 

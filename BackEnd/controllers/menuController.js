@@ -1,6 +1,7 @@
 const menuService = require('../services/menuService');
 const { sendSuccess, sendError, sendPaginatedResponse } = require('../utils/responseHandler');
 const logger = require('../utils/logger');
+const cacheService = require('../utils/cache');
 
 class MenuController {
   // Create menu item
@@ -13,6 +14,10 @@ class MenuController {
       }
 
       const menuItem = await menuService.createMenuItem(menuItemData);
+      
+      const restId = menuItemData.restaurantId;
+      cacheService.deleteByPrefix(`menu:restaurant:${restId}`);
+      cacheService.deleteByPrefix(`category:restaurant:${restId}`);
 
       return sendSuccess(
         res,
@@ -75,6 +80,12 @@ class MenuController {
 
       const menuItem = await menuService.updateMenuItem(id, updateData);
 
+      const restId = typeof menuItem.restaurantId === 'string' ? menuItem.restaurantId : (menuItem.restaurantId?._id || menuItem.restaurantId?.id);
+      if (restId) {
+        cacheService.deleteByPrefix(`menu:restaurant:${restId}`);
+        cacheService.deleteByPrefix(`category:restaurant:${restId}`);
+      }
+
       return sendSuccess(
         res,
         'Menu item updated successfully',
@@ -90,7 +101,15 @@ class MenuController {
   async deleteMenuItem(req, res) {
     try {
       const { id } = req.params;
+      const menuItem = await menuService.getMenuItemById(id); // Needed to find restaurantId before delete
+      const restId = menuItem ? (typeof menuItem.restaurantId === 'string' ? menuItem.restaurantId : (menuItem.restaurantId?._id || menuItem.restaurantId?.id)) : null;
+
       await menuService.deleteMenuItem(id);
+
+      if (restId) {
+        cacheService.deleteByPrefix(`menu:restaurant:${restId}`);
+        cacheService.deleteByPrefix(`category:restaurant:${restId}`);
+      }
 
       return sendSuccess(res, 'Menu item deleted successfully');
     } catch (error) {

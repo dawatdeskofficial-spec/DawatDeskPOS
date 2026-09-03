@@ -70,12 +70,24 @@ const parseResponse = async (response: Response) => {
   return data as any;
 };
 
+// Application-wide Frontend API Cache to deduplicate frequent requests
+const clientCache = new Map<string, { params: any, expiry: number, promise?: Promise<any> }>();
+
+export const clearClientCache = () => {
+  clientCache.clear();
+};
+
 export const fetchJson = async (path: string, init: RequestInit = {}) => {
   const url = buildUrl(path);
   const headers = {
     "Content-Type": "application/json",
     ...(init.headers ?? {}),
   } as Record<string, string>;
+
+  // Clear cache on mutations explicitly
+  if (init.method && ['POST', 'PUT', 'DELETE', 'PATCH'].includes(init.method.toUpperCase())) {
+    clearClientCache();
+  }
 
   const response = await fetch(url, {
     ...init,
@@ -93,12 +105,44 @@ export const authFetch = async (path: string, init: RequestInit = {}) => {
     ...(token ? { Authorization: `Bearer ${token}` } : {}),
   } as Record<string, string>;
 
+  // Clear cache on mutations directly
+  if (init.method && ['POST', 'PUT', 'DELETE', 'PATCH'].includes(init.method.toUpperCase())) {
+    clearClientCache();
+  }
+
   const response = await fetch(buildUrl(path), {
     ...init,
     headers,
   });
 
   return parseResponse(response);
+};
+
+// Caching wrapper standardizing duplicate request prevention and short TTLs
+export const cachedAuthFetch = async (path: string, init: RequestInit = {}, ttlSeconds = 15) => {
+  const cacheKey = path;
+  const now = Date.now();
+
+  if (clientCache.has(cacheKey)) {
+    const cached = clientCache.get(cacheKey)!;
+    if (now < cached.expiry) {
+      if (cached.promise) return cached.promise;
+      return cached.params;
+    }
+    clientCache.delete(cacheKey); // Expired
+  }
+
+  // Deduplicate inflight requests
+  const promise = authFetch(path, init).then((res) => {
+    clientCache.set(cacheKey, { params: res, expiry: Date.now() + (ttlSeconds * 1000) });
+    return res;
+  }).catch(e => {
+    clientCache.delete(cacheKey);
+    throw e;
+  });
+
+  clientCache.set(cacheKey, { params: null, expiry: now + (ttlSeconds * 1000), promise });
+  return promise;
 };
 
 export const loginUser = async (email: string, password: string) => {
@@ -143,7 +187,7 @@ export const adminCreateUser = async (data: {
 
 // Restaurant APIs
 export const getRestaurants = async () => {
-  return authFetch("/api/restaurants", { method: "GET" });
+  return cachedAuthFetch("/api/restaurants", { method: "GET" }, 30);
 };
 
 export const createRestaurant = async (data: {
@@ -176,9 +220,9 @@ export const deleteRestaurant = async (restaurantId: string) => {
 
 // Menu APIs
 export const getMenuItems = async (restaurantId: string, page = 1, limit = 500) => {
-  return authFetch(`/api/menu/restaurant/${restaurantId}?page=${page}&limit=${limit}`, {
+  return cachedAuthFetch(`/api/menu/restaurant/${restaurantId}?page=${page}&limit=${limit}`, {
     method: "GET",
-  });
+  }, 30); // 30 seconds frontend cache
 };
 
 export const createMenuItem = async (data: {
@@ -223,7 +267,7 @@ export type MenuCategory = {
 };
 
 export const getCategoriesByRestaurant = async (restaurantId: string) => {
-  return authFetch(`/api/categories/restaurant/${restaurantId}`, { method: "GET" });
+  return cachedAuthFetch(`/api/categories/restaurant/${restaurantId}`, { method: "GET" }, 30);
 };
 
 export const getPublicCategoriesByRestaurant = async (restaurantId: string) => {
@@ -409,7 +453,7 @@ export const deleteUser = async (userId: string) => {
 
 // System Settings & Logs APIs
 export const getSystemSettings = async () => {
-  return authFetch("/api/settings", { method: "GET" });
+  return cachedAuthFetch("/api/settings", { method: "GET" }, 60); // rarely changes
 };
 
 export const updateSystemSettings = async (data: Record<string, unknown>) => {

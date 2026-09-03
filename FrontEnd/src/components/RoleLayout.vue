@@ -231,6 +231,7 @@ function handlePopState() {
 }
 
 function handleLogout() {
+  open.value = false // close mobile navigation if open
   showLogoutConfirm.value = true
 }
 
