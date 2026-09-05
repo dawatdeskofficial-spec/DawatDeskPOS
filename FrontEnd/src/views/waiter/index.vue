@@ -328,13 +328,13 @@ const activeOrderForTable = computed(() =>
 )
 
 // Granular pending/cooking detection per item (supports continued/multi-round orders on a table)
-const pendingOrderItems = computed(() => {
+const pendingOrderItems = computed<any[]>(() => {
   return (activeOrderForTable.value?.items || []).filter(
     (it: any) => (it.status || 'PENDING').toUpperCase() === 'PENDING'
   )
 })
 
-const nonPendingOrderItems = computed(() => {
+const nonPendingOrderItems = computed<any[]>(() => {
   return (activeOrderForTable.value?.items || []).filter(
     (it: any) => (it.status || 'PENDING').toUpperCase() !== 'PENDING'
   )
@@ -475,23 +475,23 @@ async function handleSaveOrderUpdate() {
   savingOrderUpdate.value = true
   try {
     // Only pending items are subject to deletion (preserves all delivered / cooking dishes)
-    const originalPendingIds = new Set(pendingOrderItems.value.map(i => String(i.id || i._id)))
-    const currentItemIds = new Set(editableOrderItems.value.filter(i => !i.isNew).map(i => i.id))
-    const itemIdsToDelete = [...originalPendingIds].filter(id => !currentItemIds.has(id))
+    const originalPendingIds = new Set<string>(pendingOrderItems.value.map((i: any) => String(i.id || i._id)))
+    const currentItemIds = new Set<string>(editableOrderItems.value.filter((i: any) => !i.isNew).map((i: any) => String(i.id)))
+    const itemIdsToDelete: string[] = Array.from(originalPendingIds).filter((id: string) => !currentItemIds.has(id))
 
     const itemsToAdd = editableOrderItems.value
-      .filter(i => i.isNew)
-      .map(i => ({
-        menuItemId: i.menuItemId,
-        qty: i.qty,
+      .filter((i: any) => i.isNew)
+      .map((i: any) => ({
+        menuItemId: String(i.menuItemId),
+        qty: Number(i.qty),
         specialInstructions: i.specialInstructions || undefined,
       }))
 
     const itemsToUpdate = editableOrderItems.value
-      .filter(i => !i.isNew && (i.qty !== i.originalQty || i.specialInstructions !== (i.originalSpecialInstructions || '')))
-      .map(i => ({
-        id: i.id,
-        qty: i.qty,
+      .filter((i: any) => !i.isNew && (i.qty !== i.originalQty || i.specialInstructions !== (i.originalSpecialInstructions || '')))
+      .map((i: any) => ({
+        id: String(i.id),
+        qty: Number(i.qty),
         specialInstructions: i.specialInstructions || undefined,
       }))
 
@@ -532,7 +532,7 @@ async function handleCancelPendingOrder() {
 
     cancelingOrder.value = true
     try {
-      const pendingIds = pendingOrderItems.value.map(i => String(i.id || i._id))
+      const pendingIds: string[] = pendingOrderItems.value.map((i: any) => String(i.id || i._id))
       await batchUpdateOrderItems(orderId, {
         itemIdsToDelete: pendingIds,
         itemsToUpdate: [],
