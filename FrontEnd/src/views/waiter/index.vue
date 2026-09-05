@@ -1,17 +1,19 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
 import {
   Minus, Plus, Send, Trash2, CheckCircle2, Clock,
   BellRing, ShoppingBag, ArrowLeft, UtensilsCrossed, X,
   ChevronRight, Receipt, Search,
-  ArrowRight, FileText, Sparkles
+  ArrowRight, FileText, Sparkles,
+  Edit, Flame, AlertCircle, Check, Lock, Unlock
 } from 'lucide-vue-next'
 import { toast } from 'vue-sonner'
 import RoleLayout from '@/components/RoleLayout.vue'
 import { waiterNav } from '@/lib/nav'
 import {
   getMenuItems, createOrder, getOrders, getRestaurantById,
-  updateOrderStatus, getCategoriesByRestaurant, getWaitingQueue, type MenuCategory
+  updateOrderStatus, getCategoriesByRestaurant, getWaitingQueue, type MenuCategory,
+  batchUpdateOrderItems, cancelOrder
 } from '@/lib/api'
 import { useAuthStore } from '@/stores/auth'
 import Button from '@/components/ui/Button.vue'
@@ -170,11 +172,32 @@ async function loadDynamicData() {
       }
     })
 
-    tables.value = Array.from({ length: maxTables.value }, (_, i) => ({
-      id: `t${i + 1}`,
-      number: i + 1,
-      status: activeTables.has(i + 1) ? 'occupied' : 'available',
-    }))
+    const activeOrderMap = new Map<number, any>()
+    rawOrders.forEach((o: any) => {
+      const s = (o.status || '').toUpperCase()
+      const p = (o.paymentStatus || '').toUpperCase()
+      const tbl = Number(o.tableNumber || o.table)
+      if (tbl > 0 && !['COMPLETED', 'CANCELLED'].includes(s) && p !== 'COMPLETED') {
+        if (!activeOrderMap.has(tbl)) {
+          activeOrderMap.set(tbl, o)
+        }
+      }
+    })
+
+    tables.value = Array.from({ length: maxTables.value }, (_, i) => {
+      const num = i + 1
+      const isOccupied = activeTables.has(num)
+      const order = activeOrderMap.get(num)
+      const orderStatus = order ? (order.status || '').toUpperCase() : null
+
+      return {
+        id: `t${num}`,
+        number: num,
+        status: isOccupied ? 'occupied' : 'available',
+        activeOrder: order || null,
+        kitchenStatus: orderStatus as 'PENDING' | 'PREPARING' | 'READY' | 'SERVED' | null,
+      }
+    })
   } catch (err) {
     console.error(err)
   } finally {
@@ -298,9 +321,217 @@ function elapsed(ts: string) {
 const activeOrderForTable = computed(() =>
   allOrders.value.find(
     (o: any) =>
-      o.tableNumber === table.value &&
-      !['COMPLETED', 'CANCELLED'].includes((o.status || '').toUpperCase())
+      Number(o.tableNumber) === table.value &&
+      !['COMPLETED', 'CANCELLED'].includes((o.status || '').toUpperCase()) &&
+      (o.paymentStatus || '').toUpperCase() !== 'COMPLETED'
   )
+)
+
+const isOrderPending = computed(() => {
+  if (!activeOrderForTable.value) return false
+  return (activeOrderForTable.value.status || '').toUpperCase() === 'PENDING'
+})
+
+const isOrderCooking = computed(() => {
+  if (!activeOrderForTable.value) return false
+  return (activeOrderForTable.value.status || '').toUpperCase() === 'PREPARING'
+})
+
+const isOrderReady = computed(() => {
+  if (!activeOrderForTable.value) return false
+  return (activeOrderForTable.value.status || '').toUpperCase() === 'READY'
+})
+
+// ── Update Order State (strictly allowed ONLY until Chef starts cooking) ──
+const updateOrderModalOpen = ref(false)
+const editableOrderItems = ref<any[]>([])
+const editableOrderNotes = ref('')
+const savingOrderUpdate = ref(false)
+const cancelingOrder = ref(false)
+const addItemSearch = ref('')
+const showAddDishPicker = ref(false)
+
+function openUpdateOrderModal() {
+  if (!activeOrderForTable.value) return
+  const currentStatus = (activeOrderForTable.value.status || '').toUpperCase()
+  if (currentStatus !== 'PENDING') {
+    toast.error('Cannot update order: Chef has already started cooking!')
+    return
+  }
+
+  // Clone items from activeOrderForTable
+  editableOrderItems.value = (activeOrderForTable.value.items || []).map((it: any) => ({
+    id: String(it.id || it._id),
+    menuItemId: it.menuItemId || it.id || it._id,
+    name: it.name,
+    price: it.price,
+    qty: it.qty,
+    originalQty: it.qty,
+    specialInstructions: it.note || it.specialInstructions || '',
+    isNew: false,
+    status: it.status || 'PENDING',
+    emoji: it.emoji || '🍴',
+  }))
+  editableOrderNotes.value = activeOrderForTable.value.notes || ''
+  showAddDishPicker.value = false
+  addItemSearch.value = ''
+  updateOrderModalOpen.value = true
+}
+
+function incEditQty(index: number) {
+  editableOrderItems.value[index].qty++
+}
+
+function decEditQty(index: number) {
+  if (editableOrderItems.value[index].qty > 1) {
+    editableOrderItems.value[index].qty--
+  } else {
+    removeEditItem(index)
+  }
+}
+
+function removeEditItem(index: number) {
+  editableOrderItems.value.splice(index, 1)
+}
+
+function addDishToEditableOrder(menuItem: any) {
+  const existing = editableOrderItems.value.find(
+    (i) => (i.menuItemId === menuItem.id || i.name === menuItem.name)
+  )
+  if (existing) {
+    existing.qty++
+  } else {
+    editableOrderItems.value.push({
+      id: `new_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,
+      menuItemId: menuItem.id,
+      name: menuItem.name,
+      price: menuItem.price,
+      qty: 1,
+      originalQty: 0,
+      specialInstructions: '',
+      isNew: true,
+      emoji: menuItem.emoji || '🍴',
+    })
+  }
+  toast.success(`Added "${menuItem.name}" to ticket update`)
+}
+
+const editableSubtotal = computed(() =>
+  editableOrderItems.value.reduce((sum, item) => sum + (item.price * item.qty), 0)
+)
+const editableTax = computed(() => editableSubtotal.value * 0.08)
+const editableTotal = computed(() => editableSubtotal.value + editableTax.value)
+
+const addableMenuItems = computed(() => {
+  let list = menuItems.value.filter((m) => m.available)
+  if (addItemSearch.value.trim()) {
+    const q = addItemSearch.value.toLowerCase().trim()
+    list = list.filter(
+      (m) =>
+        m.name?.toLowerCase().includes(q) ||
+        m.categoryName?.toLowerCase().includes(q)
+    )
+  }
+  return list
+})
+
+async function handleSaveOrderUpdate() {
+  if (!activeOrderForTable.value) return
+  const orderId = String(activeOrderForTable.value.id || activeOrderForTable.value._id)
+
+  // Re-verify current live status before submitting
+  const currentStatus = (activeOrderForTable.value.status || '').toUpperCase()
+  if (currentStatus !== 'PENDING') {
+    toast.error('Chef has already started cooking this order! Modifications are locked.', { duration: 5000 })
+    updateOrderModalOpen.value = false
+    return
+  }
+
+  if (editableOrderItems.value.length === 0) {
+    toast.error('Order cannot be empty. Please keep at least one dish or cancel the order.')
+    return
+  }
+
+  savingOrderUpdate.value = true
+  try {
+    const originalItems: any[] = activeOrderForTable.value.items || []
+    const currentItemIds = new Set(editableOrderItems.value.filter(i => !i.isNew).map(i => i.id))
+    const itemIdsToDelete = originalItems
+      .filter(i => !currentItemIds.has(String(i.id || i._id)))
+      .map(i => String(i.id || i._id))
+
+    const itemsToAdd = editableOrderItems.value
+      .filter(i => i.isNew)
+      .map(i => ({
+        menuItemId: i.menuItemId,
+        qty: i.qty,
+        specialInstructions: i.specialInstructions || undefined,
+      }))
+
+    const itemsToUpdate = editableOrderItems.value
+      .filter(i => !i.isNew && (i.qty !== i.originalQty || i.specialInstructions !== (i.note || '')))
+      .map(i => ({
+        id: i.id,
+        qty: i.qty,
+        specialInstructions: i.specialInstructions || undefined,
+      }))
+
+    await batchUpdateOrderItems(orderId, {
+      itemsToUpdate,
+      itemsToAdd,
+      itemIdsToDelete,
+      notes: editableOrderNotes.value.trim() || undefined,
+    })
+
+    toast.success(`Table ${table.value} order updated! Kitchen ticket refreshed.`)
+    updateOrderModalOpen.value = false
+    await loadDynamicData()
+  } catch (err: any) {
+    toast.error(err.message || 'Failed to update order')
+    await loadDynamicData()
+  } finally {
+    savingOrderUpdate.value = false
+  }
+}
+
+async function handleCancelPendingOrder() {
+  if (!activeOrderForTable.value) return
+  const orderId = String(activeOrderForTable.value.id || activeOrderForTable.value._id)
+
+  const currentStatus = (activeOrderForTable.value.status || '').toUpperCase()
+  if (currentStatus !== 'PENDING') {
+    toast.error('Cannot cancel: Chef has already started cooking!')
+    return
+  }
+
+  const confirmCancel = window.confirm(
+    `Are you sure you want to cancel Table ${table.value}'s pending order? This will void the ticket.`
+  )
+  if (!confirmCancel) return
+
+  cancelingOrder.value = true
+  try {
+    await cancelOrder(orderId, 'Cancelled by waiter before cooking started')
+    toast.success(`Order for Table ${table.value} has been cancelled.`)
+    updateOrderModalOpen.value = false
+    activeOrderModalOpen.value = false
+    table.value = null
+    await loadDynamicData()
+  } catch (err: any) {
+    toast.error(err.message || 'Failed to cancel order')
+  } finally {
+    cancelingOrder.value = false
+  }
+}
+
+// Real-time notification if chef starts cooking while update modal is open
+watch(
+  () => activeOrderForTable.value?.status,
+  (newStatus) => {
+    if (updateOrderModalOpen.value && newStatus && (newStatus as string).toUpperCase() !== 'PENDING') {
+      toast.warning('⚠️ Chef has just started cooking! This order is now locked.', { duration: 6000 })
+    }
+  }
 )
 
 // Computed filtered lists
@@ -523,7 +754,7 @@ function formatTime(ts: string) {
           <div class="p-3 bg-card">
             <Button
               @click="handleServe(o.id || o._id, o.tableNumber, o.orderType === 'PARCEL' || Number(o.tableNumber) === 0, o.customerName)"
-              class="w-full h-10 gradient-success text-success-foreground font-bold shadow-glow text-xs sm:text-sm"
+              class="w-full h-10 gradient-success text-success-foreground font-bold shadow-glow text-xs sm:text-sm cursor-pointer"
             >
               <CheckCircle2 class="h-4 w-4 mr-1.5" />
               {{ (o.orderType === 'PARCEL' || Number(o.tableNumber) === 0) ? 'Handover Parcel' : `Mark Table ${o.tableNumber} as Served` }}
@@ -663,13 +894,34 @@ function formatTime(ts: string) {
             'aspect-square rounded-2xl border-2 flex flex-col items-center justify-center p-2 transition-all active:scale-95 shadow-soft group relative',
             t.status === 'available'
               ? 'border-emerald-500/30 bg-emerald-500/5 hover:border-emerald-500/70 hover:bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
-              : 'border-primary/40 bg-primary/8 hover:border-primary text-primary'
+              : t.kitchenStatus === 'PENDING'
+                ? 'border-orange-500/60 bg-orange-500/10 hover:border-orange-500 hover:bg-orange-500/15 text-orange-700 dark:text-orange-400 ring-2 ring-orange-500/25'
+                : t.kitchenStatus === 'PREPARING'
+                  ? 'border-sky-500/50 bg-sky-500/10 hover:border-sky-500 hover:bg-sky-500/15 text-sky-700 dark:text-sky-400'
+                  : t.kitchenStatus === 'READY'
+                    ? 'border-purple-500 bg-purple-500/15 hover:bg-purple-500/20 text-purple-700 dark:text-purple-300 ring-2 ring-purple-500/30'
+                    : 'border-primary/40 bg-primary/8 hover:border-primary text-primary'
           ]"
         >
+          <!-- Corner pill for kitchen status -->
+          <div v-if="t.kitchenStatus === 'PENDING'" class="absolute top-1.5 right-1.5 flex items-center gap-0.5 px-1.5 py-0.5 rounded-full bg-orange-600 text-white text-[8px] font-black uppercase tracking-wider shadow-xs">
+            <span>Edit</span>
+          </div>
+          <div v-else-if="t.kitchenStatus === 'PREPARING'" class="absolute top-1.5 right-1.5 flex items-center gap-0.5 px-1.5 py-0.5 rounded-full bg-sky-600 text-white text-[8px] font-black uppercase tracking-wider shadow-xs">
+            <span>Cooking</span>
+          </div>
+          <div v-else-if="t.kitchenStatus === 'READY'" class="absolute top-1.5 right-1.5 flex items-center gap-0.5 px-1.5 py-0.5 rounded-full bg-purple-600 text-white text-[8px] font-black uppercase tracking-wider shadow-xs animate-pulse">
+            <span>Ready</span>
+          </div>
+
           <div class="text-[9px] uppercase tracking-wider font-bold opacity-75">T-{{ String(t.number).padStart(2, '0') }}</div>
           <div class="font-display text-2xl sm:text-3xl font-black leading-none my-0.5">{{ t.number }}</div>
-          <div class="text-[9px] font-bold uppercase tracking-wider">
-            ● {{ t.status === 'occupied' ? 'Dining' : 'Free' }}
+          <div class="text-[9px] font-bold uppercase tracking-wider truncate max-w-full text-center">
+            <span v-if="t.status === 'available'">● Free</span>
+            <span v-else-if="t.kitchenStatus === 'PENDING'">● Pending (Edit)</span>
+            <span v-else-if="t.kitchenStatus === 'PREPARING'">● Cooking 🔒</span>
+            <span v-else-if="t.kitchenStatus === 'READY'">● Ready! 🔔</span>
+            <span v-else>● Dining</span>
           </div>
         </button>
       </div>
@@ -711,6 +963,127 @@ function formatTime(ts: string) {
             <span class="hidden sm:inline">Active Bill:</span>
             <span>₹{{ (activeOrderForTable.totalAmount || 0).toFixed(0) }}</span>
           </button>
+        </div>
+      </div>
+
+      <!-- ── Active Order Kitchen Status Banner (Interactive Workflow) ── -->
+      <div v-if="activeOrderForTable" class="mb-4">
+        <!-- 1. PENDING: Chef has NOT pressed Start Cooking (Waiter CAN update order) -->
+        <div
+          v-if="isOrderPending"
+          class="p-3.5 sm:p-4 rounded-2xl bg-orange-500/10 border-2 border-orange-500/40 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-3"
+        >
+          <div class="flex items-start sm:items-center gap-3">
+            <div class="h-10 w-10 rounded-xl bg-orange-500/20 text-orange-600 dark:text-orange-400 grid place-items-center shrink-0">
+              <Clock class="h-5 w-5" />
+            </div>
+            <div>
+              <div class="flex items-center gap-2 flex-wrap">
+                <span class="font-display font-bold text-sm sm:text-base text-foreground">
+                  Order Pending in Kitchen
+                </span>
+                <Badge class="bg-orange-500/20 text-orange-800 dark:text-orange-200 border-orange-500/30 text-[10px] font-bold">
+                  Chef hasn't started cooking yet
+                </Badge>
+              </div>
+              <p class="text-xs text-muted-foreground mt-0.5">
+                You can change quantities, add dishes, or delete items until chef clicks "Start Cooking".
+              </p>
+            </div>
+          </div>
+
+          <div class="flex items-center gap-2 shrink-0">
+            <Button
+              @click="openUpdateOrderModal"
+              size="sm"
+              class="h-9 px-3.5 rounded-xl bg-orange-600 hover:bg-orange-700 text-white font-bold text-xs shadow-xs flex items-center gap-1.5 cursor-pointer"
+            >
+              <Edit class="h-3.5 w-3.5" />
+              <span>Update Order</span>
+            </Button>
+            <Button
+              @click="activeOrderModalOpen = true"
+              variant="outline"
+              size="sm"
+              class="h-9 px-3 rounded-xl border-orange-500/40 text-orange-800 dark:text-orange-200 hover:bg-orange-500/10 text-xs font-semibold cursor-pointer"
+            >
+              <Receipt class="h-3.5 w-3.5 mr-1" />
+              <span>View Ticket</span>
+            </Button>
+          </div>
+        </div>
+
+        <!-- 2. PREPARING: Chef HAS pressed Start Cooking (Order LOCKED for waiter) -->
+        <div
+          v-else-if="isOrderCooking"
+          class="p-3.5 sm:p-4 rounded-2xl bg-blue-500/10 border-2 border-blue-500/30 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-3"
+        >
+          <div class="flex items-start sm:items-center gap-3">
+            <div class="h-10 w-10 rounded-xl bg-blue-500/20 text-blue-600 dark:text-blue-400 grid place-items-center shrink-0">
+              <Flame class="h-5 w-5 animate-pulse text-amber-500" />
+            </div>
+            <div>
+              <div class="flex items-center gap-2 flex-wrap">
+                <span class="font-display font-bold text-sm sm:text-base text-foreground">
+                  Cooking in Progress
+                </span>
+                <Badge class="bg-blue-500/20 text-blue-700 dark:text-blue-300 border-blue-500/30 text-[10px] font-bold">
+                  🔒 Order Locked
+                </Badge>
+              </div>
+              <p class="text-xs text-muted-foreground mt-0.5">
+                Chef has pressed "Start Cooking". These items can no longer be updated or cancelled.
+              </p>
+            </div>
+          </div>
+
+          <div class="flex items-center gap-2 shrink-0">
+            <Button
+              @click="activeOrderModalOpen = true"
+              variant="outline"
+              size="sm"
+              class="h-9 px-3.5 rounded-xl border-blue-500/40 text-blue-700 dark:text-blue-300 text-xs font-bold cursor-pointer"
+            >
+              <Receipt class="h-3.5 w-3.5 mr-1.5" />
+              <span>View Live Ticket</span>
+            </Button>
+          </div>
+        </div>
+
+        <!-- 3. READY: Food is ready for pickup -->
+        <div
+          v-else-if="isOrderReady"
+          class="p-3.5 sm:p-4 rounded-2xl bg-success/10 border-2 border-success/40 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-3"
+        >
+          <div class="flex items-start sm:items-center gap-3">
+            <div class="h-10 w-10 rounded-xl bg-success/20 text-success grid place-items-center shrink-0 animate-bounce">
+              <BellRing class="h-5 w-5" />
+            </div>
+            <div>
+              <div class="flex items-center gap-2 flex-wrap">
+                <span class="font-display font-bold text-sm sm:text-base text-foreground">
+                  Dishes Ready for Handover!
+                </span>
+                <Badge class="bg-success/20 text-success border-success/30 text-[10px] font-bold">
+                  Kitchen Finished
+                </Badge>
+              </div>
+              <p class="text-xs text-muted-foreground mt-0.5">
+                Kitchen has completed preparing this table. Pick up dishes from the counter and serve.
+              </p>
+            </div>
+          </div>
+
+          <div class="flex items-center gap-2 shrink-0">
+            <Button
+              @click="handleServe(activeOrderForTable.id || activeOrderForTable._id, activeOrderForTable.tableNumber)"
+              size="sm"
+              class="h-9 px-4 rounded-xl gradient-success text-success-foreground text-xs font-bold shadow-xs flex items-center gap-1.5 cursor-pointer"
+            >
+              <CheckCircle2 class="h-3.5 w-3.5" />
+              <span>Mark Served</span>
+            </Button>
+          </div>
         </div>
       </div>
 
@@ -1164,6 +1537,40 @@ function formatTime(ts: string) {
           </div>
         </DialogHeader>
 
+        <!-- Kitchen Cooking State Banner -->
+        <div class="px-5 pt-3">
+          <div
+            v-if="isOrderPending"
+            class="p-3 rounded-xl bg-orange-500/10 border border-orange-500/30 text-orange-800 dark:text-orange-200 flex items-center justify-between gap-2 text-xs"
+          >
+            <div class="flex items-center gap-2">
+              <Clock class="h-4 w-4 shrink-0 text-orange-600 dark:text-orange-400" />
+              <span><strong>Cooking Not Started:</strong> You can still edit dishes or quantities.</span>
+            </div>
+            <Button
+              @click="activeOrderModalOpen = false; openUpdateOrderModal()"
+              size="sm"
+              class="h-7 px-2.5 bg-orange-600 hover:bg-orange-700 text-white font-bold text-[11px] shrink-0 cursor-pointer shadow-xs"
+            >
+              <Edit class="h-3 w-3 mr-1" /> Edit Order
+            </Button>
+          </div>
+          <div
+            v-else-if="isOrderCooking"
+            class="p-3 rounded-xl bg-blue-500/10 border border-blue-500/30 text-blue-700 dark:text-blue-300 flex items-center gap-2 text-xs"
+          >
+            <Lock class="h-4 w-4 shrink-0 text-blue-500" />
+            <span><strong>Cooking in Progress:</strong> Chef pressed "Start Cooking". Order is locked for modifications.</span>
+          </div>
+          <div
+            v-else-if="isOrderReady"
+            class="p-3 rounded-xl bg-success/10 border border-success/30 text-success flex items-center gap-2 text-xs"
+          >
+            <BellRing class="h-4 w-4 shrink-0" />
+            <span><strong>Ready for Pickup:</strong> Chef finished cooking. Pick up and serve.</span>
+          </div>
+        </div>
+
         <!-- Items Breakdown -->
         <div class="flex-1 overflow-y-auto p-5 space-y-3 min-h-[200px]">
           <div class="text-xs font-bold uppercase tracking-wider text-muted-foreground mb-2 flex items-center justify-between">
@@ -1191,7 +1598,7 @@ function formatTime(ts: string) {
                 :class="[
                   'px-2 py-0.5 rounded-md text-[10px] font-bold uppercase border',
                   item.status === 'DELIVERED' ? 'bg-success/15 text-success border-success/30' :
-                  item.status === 'READY' ? 'bg-amber-500/15 text-amber-600 dark:text-amber-400 border-amber-500/30 animate-pulse' :
+                  item.status === 'READY' ? 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 border-emerald-500/30 animate-pulse' :
                   item.status === 'PREPARING' ? 'bg-primary/15 text-primary border-primary/30' :
                   'bg-muted text-muted-foreground border-border'
                 ]"
@@ -1215,6 +1622,274 @@ function formatTime(ts: string) {
               <span>Current Total</span>
               <span class="tabular-nums text-primary font-bold">₹{{ (activeOrderForTable?.totalAmount || 0).toFixed(0) }}</span>
             </div>
+          </div>
+        </div>
+
+        <!-- Dialog Footer -->
+        <div class="p-3.5 border-t border-border bg-card flex items-center justify-between gap-2">
+          <div v-if="isOrderPending">
+            <Button
+              @click="handleCancelPendingOrder"
+              :disabled="cancelingOrder"
+              variant="ghost"
+              size="sm"
+              class="h-8 text-xs text-destructive hover:bg-destructive/10 font-bold"
+            >
+              <Trash2 class="h-3 w-3 mr-1" />
+              Cancel Order
+            </Button>
+          </div>
+          <div v-else class="text-[11px] text-muted-foreground flex items-center gap-1">
+            <Lock class="h-3.5 w-3.5" /> Order locked (cooking started)
+          </div>
+
+          <div class="flex items-center gap-2">
+            <Button
+              @click="activeOrderModalOpen = false"
+              variant="outline"
+              size="sm"
+              class="h-8 text-xs font-semibold"
+            >
+              Close
+            </Button>
+            <Button
+              v-if="isOrderPending"
+              @click="activeOrderModalOpen = false; openUpdateOrderModal()"
+              size="sm"
+              class="h-8 px-3.5 bg-orange-600 hover:bg-orange-700 text-white text-xs font-bold shadow-xs flex items-center gap-1 cursor-pointer"
+            >
+              <Edit class="h-3.5 w-3.5" /> Update Order
+            </Button>
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
+
+    <!-- ── Update / Edit Kitchen Order Modal (Available strictly until Chef starts cooking) ── -->
+    <Dialog :open="updateOrderModalOpen" @update:open="updateOrderModalOpen = $event">
+      <DialogContent class="sm:max-w-xl max-h-[90vh] flex flex-col p-0 overflow-hidden">
+        <DialogHeader class="p-5 pb-3 border-b border-border bg-card">
+          <div class="flex items-center justify-between">
+            <div class="flex items-center gap-2.5">
+              <div class="h-9 w-9 rounded-xl bg-orange-500/20 text-orange-600 dark:text-orange-400 grid place-items-center">
+                <Edit class="h-4.5 w-4.5" />
+              </div>
+              <div>
+                <DialogTitle class="font-display text-xl font-bold">
+                  Update Table {{ table }} Order
+                </DialogTitle>
+                <DialogDescription class="text-xs text-muted-foreground mt-0.5">
+                  Editable while Chef has not started cooking
+                </DialogDescription>
+              </div>
+            </div>
+            <Badge class="bg-orange-500/15 text-orange-700 dark:text-orange-300 border-orange-500/30 text-xs font-bold px-2.5 py-1">
+              {{ activeOrderForTable?.status || 'PENDING' }}
+            </Badge>
+          </div>
+        </DialogHeader>
+
+        <div class="flex-1 overflow-y-auto p-5 space-y-4">
+          <!-- Live Status Guard Banner -->
+          <div
+            v-if="!isOrderPending"
+            class="p-3 rounded-xl bg-destructive/10 border border-destructive/30 text-destructive flex items-start gap-2 text-xs"
+          >
+            <AlertCircle class="h-4 w-4 shrink-0 mt-0.5" />
+            <div>
+              <strong>Order is now locked!</strong>
+              <p>Chef has pressed "Start Cooking". You can no longer update this order.</p>
+            </div>
+          </div>
+          <div
+            v-else
+            class="p-3 rounded-xl bg-orange-500/10 border border-orange-500/30 text-orange-800 dark:text-orange-200 flex items-start gap-2 text-xs"
+          >
+            <Clock class="h-4 w-4 shrink-0 mt-0.5 text-orange-600 dark:text-orange-400" />
+            <div>
+              <strong>Kitchen Status: Pending Cooking</strong>
+              <p>You can modify items, adjust quantities, or add more dishes. Once chef clicks "Start Cooking", modifications are locked.</p>
+            </div>
+          </div>
+
+          <!-- Items in Order -->
+          <div class="space-y-2">
+            <div class="flex items-center justify-between text-xs font-bold text-muted-foreground uppercase tracking-wider">
+              <span>Ordered Dishes ({{ editableOrderItems.length }})</span>
+              <span>Quantity & Price</span>
+            </div>
+
+            <div v-if="editableOrderItems.length === 0" class="text-center py-8 text-muted-foreground text-xs border border-dashed rounded-xl p-4">
+              All items removed. Add a dish below or cancel the order.
+            </div>
+
+            <div
+              v-for="(item, idx) in editableOrderItems"
+              :key="item.id"
+              class="p-3 rounded-2xl bg-card border border-border/80 shadow-xs flex flex-col gap-2 transition hover:border-border"
+            >
+              <div class="flex items-center justify-between gap-3">
+                <div class="min-w-0 flex-1">
+                  <div class="flex items-center gap-1.5">
+                    <span v-if="item.isNew" class="px-1.5 py-0.2 rounded bg-primary/20 text-primary text-[9px] font-black uppercase">
+                      NEW
+                    </span>
+                    <span class="font-bold text-sm text-foreground truncate">{{ item.name }}</span>
+                  </div>
+                  <div class="text-xs text-muted-foreground mt-0.5">
+                    ₹{{ item.price }} each · <strong class="text-foreground">₹{{ (item.price * item.qty).toFixed(0) }}</strong>
+                  </div>
+                </div>
+
+                <!-- Quantity controls -->
+                <div class="flex items-center gap-1.5 shrink-0">
+                  <button
+                    @click="decEditQty(idx)"
+                    :disabled="!isOrderPending || savingOrderUpdate"
+                    class="h-8 w-8 grid place-items-center rounded-xl bg-muted hover:bg-muted/80 border border-border transition active:scale-95 disabled:opacity-40 cursor-pointer"
+                    title="Decrease quantity"
+                  >
+                    <Minus class="h-3.5 w-3.5" />
+                  </button>
+                  <span class="w-6 text-center text-xs font-black tabular-nums text-primary">
+                    {{ item.qty }}
+                  </span>
+                  <button
+                    @click="incEditQty(idx)"
+                    :disabled="!isOrderPending || savingOrderUpdate"
+                    class="h-8 w-8 grid place-items-center rounded-xl gradient-primary text-primary-foreground shadow-xs active:scale-95 disabled:opacity-40 cursor-pointer"
+                    title="Increase quantity"
+                  >
+                    <Plus class="h-3.5 w-3.5" />
+                  </button>
+                  <button
+                    @click="removeEditItem(idx)"
+                    :disabled="!isOrderPending || savingOrderUpdate"
+                    class="h-8 w-8 grid place-items-center rounded-xl text-destructive hover:bg-destructive/10 ml-1 transition disabled:opacity-40 cursor-pointer"
+                    title="Remove item"
+                  >
+                    <Trash2 class="h-3.5 w-3.5" />
+                  </button>
+                </div>
+              </div>
+
+              <!-- Special note input -->
+              <div class="pt-1 border-t border-border/40">
+                <Input
+                  v-model="item.specialInstructions"
+                  :disabled="!isOrderPending || savingOrderUpdate"
+                  placeholder="Special instructions (e.g. less spicy, no onion)…"
+                  class="h-7 text-[11px] bg-muted/20"
+                />
+              </div>
+            </div>
+          </div>
+
+          <!-- Add More Dishes to this Order -->
+          <div class="pt-2">
+            <button
+              v-if="!showAddDishPicker"
+              @click="showAddDishPicker = true"
+              :disabled="!isOrderPending || savingOrderUpdate"
+              class="w-full py-2.5 px-3 rounded-xl border border-dashed border-primary/40 hover:border-primary text-primary hover:bg-primary/5 text-xs font-bold transition flex items-center justify-center gap-2 cursor-pointer disabled:opacity-40"
+            >
+              <Plus class="h-4 w-4" />
+              <span>Add Another Dish from Menu</span>
+            </button>
+
+            <!-- Expanded Dish Picker -->
+            <div v-else class="p-3.5 rounded-2xl bg-muted/30 border border-border space-y-2.5">
+              <div class="flex items-center justify-between">
+                <span class="text-xs font-bold text-foreground">Select Dish to Add:</span>
+                <button @click="showAddDishPicker = false" class="text-xs text-muted-foreground hover:text-foreground cursor-pointer">
+                  <X class="h-3.5 w-3.5" />
+                </button>
+              </div>
+
+              <div class="relative">
+                <Search class="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+                <Input
+                  v-model="addItemSearch"
+                  placeholder="Search dish name…"
+                  class="pl-8 h-8 text-xs bg-card"
+                />
+              </div>
+
+              <div class="max-h-48 overflow-y-auto space-y-1 pr-1">
+                <div
+                  v-for="dish in addableMenuItems"
+                  :key="dish.id"
+                  class="flex items-center justify-between p-2 rounded-xl bg-card border border-border/60 hover:border-primary text-xs transition cursor-pointer"
+                  @click="addDishToEditableOrder(dish)"
+                >
+                  <div class="min-w-0 flex-1 mr-2">
+                    <div class="font-bold truncate">{{ dish.name }}</div>
+                    <div class="text-[10px] text-muted-foreground">₹{{ dish.price.toFixed(0) }} · {{ dish.categoryName }}</div>
+                  </div>
+                  <Button size="sm" class="h-6 px-2.5 text-[10px] gradient-primary text-primary-foreground font-bold rounded-lg shrink-0">
+                    <Plus class="h-3 w-3 mr-0.5" /> Add
+                  </Button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Order Kitchen Note -->
+          <div class="space-y-1">
+            <label class="text-xs font-bold text-muted-foreground">Kitchen Ticket Notes</label>
+            <Input
+              v-model="editableOrderNotes"
+              :disabled="!isOrderPending || savingOrderUpdate"
+              placeholder="Overall note for kitchen (e.g. serve quick, pack extra chutney)…"
+              class="h-9 text-xs bg-card"
+            />
+          </div>
+
+          <!-- Updated Totals Summary -->
+          <div class="p-4 rounded-2xl bg-muted/20 border border-border space-y-1.5 text-xs">
+            <div class="flex justify-between text-muted-foreground">
+              <span>Subtotal</span>
+              <span class="tabular-nums font-semibold">₹{{ editableSubtotal.toFixed(0) }}</span>
+            </div>
+            <div class="flex justify-between text-muted-foreground">
+              <span>GST (8%)</span>
+              <span class="tabular-nums font-semibold">₹{{ editableTax.toFixed(0) }}</span>
+            </div>
+            <div class="flex justify-between font-display text-base font-bold pt-1.5 border-t border-border text-foreground">
+              <span>New Total</span>
+              <span class="tabular-nums text-primary font-bold">₹{{ editableTotal.toFixed(0) }}</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Dialog Footer Actions -->
+        <div class="p-4 border-t border-border bg-card flex flex-col sm:flex-row items-center justify-between gap-2.5">
+          <Button
+            @click="handleCancelPendingOrder"
+            :disabled="!isOrderPending || cancelingOrder || savingOrderUpdate"
+            variant="ghost"
+            class="w-full sm:w-auto h-10 text-xs text-destructive hover:bg-destructive/10 font-bold cursor-pointer"
+          >
+            <Trash2 class="h-3.5 w-3.5 mr-1" />
+            {{ cancelingOrder ? 'Cancelling...' : 'Cancel Entire Order' }}
+          </Button>
+
+          <div class="flex items-center gap-2 w-full sm:w-auto">
+            <Button
+              @click="updateOrderModalOpen = false"
+              variant="outline"
+              class="flex-1 sm:flex-none h-10 text-xs font-bold cursor-pointer"
+            >
+              Close
+            </Button>
+            <Button
+              @click="handleSaveOrderUpdate"
+              :disabled="!isOrderPending || savingOrderUpdate || editableOrderItems.length === 0"
+              class="flex-1 sm:flex-none h-10 px-5 gradient-primary text-primary-foreground text-xs font-bold shadow-glow cursor-pointer"
+            >
+              <Check class="h-4 w-4 mr-1.5" />
+              {{ savingOrderUpdate ? 'Updating...' : `Save Changes · ₹${editableTotal.toFixed(0)}` }}
+            </Button>
           </div>
         </div>
       </DialogContent>

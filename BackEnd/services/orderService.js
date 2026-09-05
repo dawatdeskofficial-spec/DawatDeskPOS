@@ -445,7 +445,7 @@ class OrderService {
   }
 
   // Update item quantity in order
-  async updateOrderItemQuantity(orderId, orderItemId, quantity) {
+  async updateOrderItemQuantity(orderId, orderItemId, quantity, userRole = null, specialInstructions = undefined) {
     try {
       const order = await Order.findById(orderId);
       if (!order) {
@@ -456,26 +456,40 @@ class OrderService {
         throw new Error('Cannot edit a completed or cancelled order');
       }
 
-      const parsedQty = parseInt(quantity, 10);
-      if (isNaN(parsedQty) || parsedQty <= 0) {
-        return this.removeItemFromOrder(orderId, orderItemId);
+      if (userRole === 'WAITER' && order.status !== ORDER_STATUS.PENDING) {
+        throw new Error('Cannot update order: Chef has already started cooking this order');
       }
 
-      const orderItem = await OrderItem.findByIdAndUpdate(
-        orderItemId,
-        { quantity: parsedQty },
-        { new: true }
-      );
-
+      const orderItem = await OrderItem.findById(orderItemId);
       if (!orderItem) {
         throw new Error('Order item not found');
       }
+
+      if (userRole === 'WAITER' && orderItem.status !== 'PENDING') {
+        throw new Error('Cannot update order item: Chef has already started cooking this item');
+      }
+
+      const parsedQty = parseInt(quantity, 10);
+      if (isNaN(parsedQty) || parsedQty <= 0) {
+        return this.removeItemFromOrder(orderId, orderItemId, userRole);
+      }
+
+      const updateData = { quantity: parsedQty };
+      if (specialInstructions !== undefined) {
+        updateData.specialInstructions = specialInstructions;
+      }
+
+      const updatedOrderItem = await OrderItem.findByIdAndUpdate(
+        orderItemId,
+        updateData,
+        { new: true }
+      );
 
       // Update order total
       await this.updateOrderTotal(orderId);
 
       logger.info(`Item quantity updated: ${orderId} / ${orderItemId} -> ${parsedQty}`);
-      return orderItem;
+      return updatedOrderItem;
     } catch (error) {
       logger.error(`Update item quantity error: ${error.message}`);
       throw error;
@@ -483,7 +497,7 @@ class OrderService {
   }
 
   // Remove item from order
-  async removeItemFromOrder(orderId, orderItemId) {
+  async removeItemFromOrder(orderId, orderItemId, userRole = null) {
     try {
       const order = await Order.findById(orderId);
       if (!order) {
@@ -494,19 +508,127 @@ class OrderService {
         throw new Error('Cannot edit a completed or cancelled order');
       }
 
-      const orderItem = await OrderItem.findByIdAndDelete(orderItemId);
-
+      const orderItem = await OrderItem.findById(orderItemId);
       if (!orderItem) {
         throw new Error('Order item not found');
       }
 
-      // Update order total
+      if (userRole === 'WAITER' && (order.status !== ORDER_STATUS.PENDING || orderItem.status !== 'PENDING')) {
+        throw new Error('Cannot remove item: Chef has already started cooking this order');
+      }
+
+      await OrderItem.findByIdAndDelete(orderItemId);
+
+      // Update order total and sync status
       await this.updateOrderTotal(orderId);
+      await this.syncOrderStatusFromItems(orderId);
 
       logger.info(`Item removed from order: ${orderId}`);
       return orderItem;
     } catch (error) {
       logger.error(`Remove item from order error: ${error.message}`);
+      throw error;
+    }
+  }
+
+  // Batch update order items (atomic update for waiter/cashier/admin)
+  async batchUpdateOrderItems(orderId, batchData = {}, userRole = null) {
+    try {
+      const order = await Order.findById(orderId);
+      if (!order) {
+        throw new Error('Order not found');
+      }
+
+      if (['COMPLETED', 'CANCELLED'].includes(order.status)) {
+        throw new Error('Cannot edit a completed or cancelled order');
+      }
+
+      // If user is WAITER: MUST be in PENDING status (before chef starts cooking)
+      if (userRole === 'WAITER') {
+        if (order.status !== ORDER_STATUS.PENDING) {
+          throw new Error('Cannot update order: Chef has already started cooking this order');
+        }
+
+        // Also ensure all existing items are PENDING
+        const currentItems = await OrderItem.find({ orderId });
+        const hasStartedItems = currentItems.some(it => it.status !== 'PENDING');
+        if (hasStartedItems) {
+          throw new Error('Cannot update order: Chef has already started cooking one or more items');
+        }
+      }
+
+      const { itemsToUpdate = [], itemsToAdd = [], itemIdsToDelete = [], notes } = batchData;
+
+      // 1. Delete items
+      if (itemIdsToDelete && itemIdsToDelete.length > 0) {
+        const validDeleteIds = itemIdsToDelete.filter(id => mongoose.Types.ObjectId.isValid(id));
+        if (validDeleteIds.length > 0) {
+          await OrderItem.deleteMany({ orderId, _id: { $in: validDeleteIds } });
+        }
+      }
+
+      // 2. Add new items
+      if (itemsToAdd && itemsToAdd.length > 0) {
+        const menuItemIds = itemsToAdd.map(it => it.menuItemId).filter(id => mongoose.Types.ObjectId.isValid(id));
+        const menuItems = await MenuItem.find({ _id: { $in: menuItemIds } });
+        const menuMap = menuItems.reduce((acc, m) => {
+          acc[m._id.toString()] = m;
+          return acc;
+        }, {});
+
+        const itemsToInsert = [];
+        const kitchenBatchId = new mongoose.Types.ObjectId().toString();
+
+        for (const item of itemsToAdd) {
+          const menuItem = menuMap[item.menuItemId?.toString()];
+          if (menuItem) {
+            itemsToInsert.push({
+              orderId: order._id,
+              menuItemId: menuItem._id,
+              quantity: Math.max(1, parseInt(item.qty || item.quantity, 10) || 1),
+              price: menuItem.price,
+              specialInstructions: item.specialInstructions || '',
+              kitchenBatch: kitchenBatchId,
+              status: menuItem.fulfillmentOwner === 'WAITER' ? 'DELIVERED' : 'PENDING',
+            });
+          }
+        }
+
+        if (itemsToInsert.length > 0) {
+          await OrderItem.insertMany(itemsToInsert);
+        }
+      }
+
+      // 3. Update existing items
+      for (const item of itemsToUpdate) {
+        const itemId = item.id || item._id || item.orderItemId;
+        if (!itemId || !mongoose.Types.ObjectId.isValid(itemId)) continue;
+
+        const newQty = parseInt(item.qty || item.quantity, 10);
+        if (newQty <= 0) {
+          await OrderItem.findByIdAndDelete(itemId);
+        } else {
+          const updateFields = { quantity: newQty };
+          if (item.specialInstructions !== undefined) {
+            updateFields.specialInstructions = item.specialInstructions;
+          }
+          await OrderItem.findByIdAndUpdate(itemId, updateFields);
+        }
+      }
+
+      // 4. Update order notes if provided
+      if (notes !== undefined) {
+        await Order.findByIdAndUpdate(orderId, { notes: String(notes).trim() });
+      }
+
+      // 5. Recalculate order total and sync status
+      await this.updateOrderTotal(orderId);
+      await this.syncOrderStatusFromItems(orderId);
+
+      logger.info(`Batch updated order items for order: ${orderId}`);
+      return this.getOrderById(orderId);
+    } catch (error) {
+      logger.error(`Batch update order items error: ${error.message}`);
       throw error;
     }
   }
@@ -542,7 +664,7 @@ class OrderService {
     }
   }
 
-  async cancelOrder(orderId, reason = '') {
+  async cancelOrder(orderId, reason = '', userRole = null) {
     try {
       if (!reason || !reason.trim()) {
         throw new Error('Cancel reason is required');
@@ -551,6 +673,10 @@ class OrderService {
       const order = await Order.findById(orderId);
       if (!order) {
         throw new Error('Order not found');
+      }
+
+      if (userRole === 'WAITER' && order.status !== ORDER_STATUS.PENDING) {
+        throw new Error('Cannot cancel order: Chef has already started cooking this order');
       }
 
       if (order.status === ORDER_STATUS.COMPLETED) {

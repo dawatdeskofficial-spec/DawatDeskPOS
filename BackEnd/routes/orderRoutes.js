@@ -59,6 +59,17 @@ router.put(
   }
 );
 
+// Batch update order items (WAITER, CASHIER, ADMIN)
+router.put(
+  '/:orderId/batch-items',
+  authenticate,
+  authorize('WAITER', 'CASHIER', 'MAIN_ADMIN', 'RESTAURANT_ADMIN'),
+  validateRestaurantOwnership('order'),
+  (req, res) => {
+    orderController.batchUpdateOrderItems(req, res);
+  }
+);
+
 // Update order status by role.
 router.put('/:id/status', authenticate, validateRestaurantOwnership('order'), (req, res) => {
   const userRole = normalizeRole(req.user.role);

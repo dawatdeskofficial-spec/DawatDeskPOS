@@ -137,13 +137,20 @@ class OrderController {
   async updateOrderItemQuantity(req, res) {
     try {
       const { orderId, itemId } = req.params;
-      const { quantity } = req.body;
+      const { quantity, specialInstructions } = req.body;
+      const userRole = req.user ? (req.user.role || '').toUpperCase() : null;
 
       if (quantity === undefined || quantity === null) {
         return sendError(res, 'Quantity is required', 400);
       }
 
-      const orderItem = await orderService.updateOrderItemQuantity(orderId, itemId, quantity);
+      const orderItem = await orderService.updateOrderItemQuantity(
+        orderId,
+        itemId,
+        quantity,
+        userRole,
+        specialInstructions
+      );
 
       return sendSuccess(res, 'Item quantity updated successfully', orderItem);
     } catch (error) {
@@ -156,12 +163,28 @@ class OrderController {
   async removeItemFromOrder(req, res) {
     try {
       const { orderId, itemId } = req.params;
+      const userRole = req.user ? (req.user.role || '').toUpperCase() : null;
 
-      await orderService.removeItemFromOrder(orderId, itemId);
+      await orderService.removeItemFromOrder(orderId, itemId, userRole);
 
       return sendSuccess(res, 'Item removed from order successfully');
     } catch (error) {
       logger.error(`Remove item from order error: ${error.message}`);
+      return sendError(res, error.message, 400);
+    }
+  }
+
+  // Batch update order items
+  async batchUpdateOrderItems(req, res) {
+    try {
+      const { orderId } = req.params;
+      const userRole = req.user ? (req.user.role || '').toUpperCase() : null;
+
+      const order = await orderService.batchUpdateOrderItems(orderId, req.body, userRole);
+
+      return sendSuccess(res, 'Order updated successfully', order);
+    } catch (error) {
+      logger.error(`Batch update order items error: ${error.message}`);
       return sendError(res, error.message, 400);
     }
   }
@@ -187,8 +210,9 @@ class OrderController {
     try {
       const { id } = req.params;
       const { reason } = req.body;
+      const userRole = req.user ? (req.user.role || '').toUpperCase() : null;
 
-      const order = await orderService.cancelOrder(id, reason);
+      const order = await orderService.cancelOrder(id, reason, userRole);
 
       return sendSuccess(
         res,

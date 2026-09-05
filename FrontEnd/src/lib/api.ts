@@ -386,6 +386,21 @@ export const removeItemFromOrder = async (orderId: string, itemId: string) => {
   });
 };
 
+export const batchUpdateOrderItems = async (
+  orderId: string,
+  payload: {
+    itemsToUpdate?: { id: string; qty: number; specialInstructions?: string }[];
+    itemsToAdd?: { menuItemId: string; qty: number; specialInstructions?: string }[];
+    itemIdsToDelete?: string[];
+    notes?: string;
+  }
+) => {
+  return authFetch(`/api/orders/${orderId}/batch-items`, {
+    method: "PUT",
+    body: JSON.stringify(payload),
+  });
+};
+
 export const completeOrder = async (orderId: string) => {
   return authFetch(`/api/orders/${orderId}/complete`, {
     method: "PUT",
