@@ -456,10 +456,6 @@ class OrderService {
         throw new Error('Cannot edit a completed or cancelled order');
       }
 
-      if (userRole === 'WAITER' && order.status !== ORDER_STATUS.PENDING) {
-        throw new Error('Cannot update order: Chef has already started cooking this order');
-      }
-
       const orderItem = await OrderItem.findById(orderItemId);
       if (!orderItem) {
         throw new Error('Order item not found');
@@ -513,8 +509,8 @@ class OrderService {
         throw new Error('Order item not found');
       }
 
-      if (userRole === 'WAITER' && (order.status !== ORDER_STATUS.PENDING || orderItem.status !== 'PENDING')) {
-        throw new Error('Cannot remove item: Chef has already started cooking this order');
+      if (userRole === 'WAITER' && orderItem.status !== 'PENDING') {
+        throw new Error('Cannot remove item: Chef has already started cooking this item');
       }
 
       await OrderItem.findByIdAndDelete(orderItemId);
@@ -543,21 +539,42 @@ class OrderService {
         throw new Error('Cannot edit a completed or cancelled order');
       }
 
-      // If user is WAITER: MUST be in PENDING status (before chef starts cooking)
+      const { itemsToUpdate = [], itemsToAdd = [], itemIdsToDelete = [], notes } = batchData;
+
+      // If user is WAITER: items being modified or deleted must strictly be PENDING (before chef starts cooking)
       if (userRole === 'WAITER') {
-        if (order.status !== ORDER_STATUS.PENDING) {
-          throw new Error('Cannot update order: Chef has already started cooking this order');
+        if (!mongoose.Types.ObjectId.isValid(orderId)) {
+          if (order.status !== ORDER_STATUS.PENDING) {
+            throw new Error('Cannot update order: Chef has already started cooking this order');
+          }
         }
 
-        // Also ensure all existing items are PENDING
-        const currentItems = await OrderItem.find({ orderId });
-        const hasStartedItems = currentItems.some(it => it.status !== 'PENDING');
-        if (hasStartedItems) {
-          throw new Error('Cannot update order: Chef has already started cooking one or more items');
+        // 1. If deleting items, all items to delete must be PENDING
+        if (itemIdsToDelete && itemIdsToDelete.length > 0) {
+          const validDeleteIds = itemIdsToDelete.filter(id => mongoose.Types.ObjectId.isValid(id));
+          const deleteItems = validDeleteIds.length > 0
+            ? await OrderItem.find({ _id: { $in: validDeleteIds }, orderId })
+            : [];
+          const hasNonPending = deleteItems.some(it => it.status !== 'PENDING');
+          if (hasNonPending || (deleteItems.length === 0 && order.status !== ORDER_STATUS.PENDING)) {
+            throw new Error('Cannot delete items: Chef has already started cooking one or more selected items');
+          }
+        }
+
+        // 2. If updating items, all items to update must be PENDING
+        if (itemsToUpdate && itemsToUpdate.length > 0) {
+          const updateIds = itemsToUpdate
+            .map(it => it.id || it._id || it.orderItemId)
+            .filter(id => id && mongoose.Types.ObjectId.isValid(id));
+          const updateItems = updateIds.length > 0
+            ? await OrderItem.find({ _id: { $in: updateIds }, orderId })
+            : [];
+          const hasNonPending = updateItems.some(it => it.status !== 'PENDING');
+          if (hasNonPending || (updateItems.length === 0 && order.status !== ORDER_STATUS.PENDING)) {
+            throw new Error('Cannot update items: Chef has already started cooking this order');
+          }
         }
       }
-
-      const { itemsToUpdate = [], itemsToAdd = [], itemIdsToDelete = [], notes } = batchData;
 
       // 1. Delete items
       if (itemIdsToDelete && itemIdsToDelete.length > 0) {

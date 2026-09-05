@@ -327,22 +327,37 @@ const activeOrderForTable = computed(() =>
   )
 )
 
+// Granular pending/cooking detection per item (supports continued/multi-round orders on a table)
+const pendingOrderItems = computed(() => {
+  return (activeOrderForTable.value?.items || []).filter(
+    (it: any) => (it.status || 'PENDING').toUpperCase() === 'PENDING'
+  )
+})
+
+const nonPendingOrderItems = computed(() => {
+  return (activeOrderForTable.value?.items || []).filter(
+    (it: any) => (it.status || 'PENDING').toUpperCase() !== 'PENDING'
+  )
+})
+
+const hasPendingItems = computed(() => pendingOrderItems.value.length > 0)
+
 const isOrderPending = computed(() => {
   if (!activeOrderForTable.value) return false
-  return (activeOrderForTable.value.status || '').toUpperCase() === 'PENDING'
+  return hasPendingItems.value || (activeOrderForTable.value.status || '').toUpperCase() === 'PENDING'
 })
 
 const isOrderCooking = computed(() => {
   if (!activeOrderForTable.value) return false
-  return (activeOrderForTable.value.status || '').toUpperCase() === 'PREPARING'
+  return !hasPendingItems.value && (activeOrderForTable.value.status || '').toUpperCase() === 'PREPARING'
 })
 
 const isOrderReady = computed(() => {
   if (!activeOrderForTable.value) return false
-  return (activeOrderForTable.value.status || '').toUpperCase() === 'READY'
+  return !hasPendingItems.value && (activeOrderForTable.value.status || '').toUpperCase() === 'READY'
 })
 
-// ── Update Order State (strictly allowed ONLY until Chef starts cooking) ──
+// ── Update Order State (strictly allowed ONLY for items chef has not started cooking) ──
 const updateOrderModalOpen = ref(false)
 const editableOrderItems = ref<any[]>([])
 const editableOrderNotes = ref('')
@@ -353,14 +368,13 @@ const showAddDishPicker = ref(false)
 
 function openUpdateOrderModal() {
   if (!activeOrderForTable.value) return
-  const currentStatus = (activeOrderForTable.value.status || '').toUpperCase()
-  if (currentStatus !== 'PENDING') {
-    toast.error('Cannot update order: Chef has already started cooking!')
+  if (!hasPendingItems.value) {
+    toast.error('Chef has already started cooking all dishes! Modifications are locked.')
     return
   }
 
-  // Clone items from activeOrderForTable
-  editableOrderItems.value = (activeOrderForTable.value.items || []).map((it: any) => ({
+  // Clone ONLY pending items (strictly dishes before chef starts cooking; earlier delivered/cooking dishes are protected)
+  editableOrderItems.value = pendingOrderItems.value.map((it: any) => ({
     id: String(it.id || it._id),
     menuItemId: it.menuItemId || it.id || it._id,
     name: it.name,
@@ -368,8 +382,9 @@ function openUpdateOrderModal() {
     qty: it.qty,
     originalQty: it.qty,
     specialInstructions: it.note || it.specialInstructions || '',
+    originalSpecialInstructions: it.note || it.specialInstructions || '',
     isNew: false,
-    status: it.status || 'PENDING',
+    status: 'PENDING',
     emoji: it.emoji || '🍴',
   }))
   editableOrderNotes.value = activeOrderForTable.value.notes || ''
@@ -409,18 +424,24 @@ function addDishToEditableOrder(menuItem: any) {
       qty: 1,
       originalQty: 0,
       specialInstructions: '',
+      originalSpecialInstructions: '',
       isNew: true,
       emoji: menuItem.emoji || '🍴',
     })
   }
-  toast.success(`Added "${menuItem.name}" to ticket update`)
+  toast.success(`Added "${menuItem.name}" to pending dishes`)
 }
 
+// Subtotal of preserved earlier delivered / cooking dishes
+const preservedSubtotal = computed(() =>
+  nonPendingOrderItems.value.reduce((sum: number, it: any) => sum + ((it.price || 0) * (it.qty || 1)), 0)
+)
 const editableSubtotal = computed(() =>
   editableOrderItems.value.reduce((sum, item) => sum + (item.price * item.qty), 0)
 )
-const editableTax = computed(() => editableSubtotal.value * 0.08)
-const editableTotal = computed(() => editableSubtotal.value + editableTax.value)
+const combinedSubtotal = computed(() => preservedSubtotal.value + editableSubtotal.value)
+const combinedTax = computed(() => combinedSubtotal.value * 0.08)
+const combinedTotal = computed(() => combinedSubtotal.value + combinedTax.value)
 
 const addableMenuItems = computed(() => {
   let list = menuItems.value.filter((m) => m.available)
@@ -439,26 +460,24 @@ async function handleSaveOrderUpdate() {
   if (!activeOrderForTable.value) return
   const orderId = String(activeOrderForTable.value.id || activeOrderForTable.value._id)
 
-  // Re-verify current live status before submitting
-  const currentStatus = (activeOrderForTable.value.status || '').toUpperCase()
-  if (currentStatus !== 'PENDING') {
-    toast.error('Chef has already started cooking this order! Modifications are locked.', { duration: 5000 })
+  // Re-verify that there are still pending dishes before submitting
+  if (!hasPendingItems.value) {
+    toast.error('Chef has already started cooking all dishes! Modifications are locked.', { duration: 5000 })
     updateOrderModalOpen.value = false
     return
   }
 
-  if (editableOrderItems.value.length === 0) {
+  if (editableOrderItems.value.length === 0 && nonPendingOrderItems.value.length === 0) {
     toast.error('Order cannot be empty. Please keep at least one dish or cancel the order.')
     return
   }
 
   savingOrderUpdate.value = true
   try {
-    const originalItems: any[] = activeOrderForTable.value.items || []
+    // Only pending items are subject to deletion (preserves all delivered / cooking dishes)
+    const originalPendingIds = new Set(pendingOrderItems.value.map(i => String(i.id || i._id)))
     const currentItemIds = new Set(editableOrderItems.value.filter(i => !i.isNew).map(i => i.id))
-    const itemIdsToDelete = originalItems
-      .filter(i => !currentItemIds.has(String(i.id || i._id)))
-      .map(i => String(i.id || i._id))
+    const itemIdsToDelete = [...originalPendingIds].filter(id => !currentItemIds.has(id))
 
     const itemsToAdd = editableOrderItems.value
       .filter(i => i.isNew)
@@ -469,7 +488,7 @@ async function handleSaveOrderUpdate() {
       }))
 
     const itemsToUpdate = editableOrderItems.value
-      .filter(i => !i.isNew && (i.qty !== i.originalQty || i.specialInstructions !== (i.note || '')))
+      .filter(i => !i.isNew && (i.qty !== i.originalQty || i.specialInstructions !== (i.originalSpecialInstructions || '')))
       .map(i => ({
         id: i.id,
         qty: i.qty,
@@ -483,8 +502,9 @@ async function handleSaveOrderUpdate() {
       notes: editableOrderNotes.value.trim() || undefined,
     })
 
-    toast.success(`Table ${table.value} order updated! Kitchen ticket refreshed.`)
+    // Automatically close the modal immediately and show specific success message
     updateOrderModalOpen.value = false
+    toast.success('Order changed successfully')
     await loadDynamicData()
   } catch (err: any) {
     toast.error(err.message || 'Failed to update order')
@@ -498,38 +518,64 @@ async function handleCancelPendingOrder() {
   if (!activeOrderForTable.value) return
   const orderId = String(activeOrderForTable.value.id || activeOrderForTable.value._id)
 
-  const currentStatus = (activeOrderForTable.value.status || '').toUpperCase()
-  if (currentStatus !== 'PENDING') {
-    toast.error('Cannot cancel: Chef has already started cooking!')
+  if (!hasPendingItems.value) {
+    toast.error('Cannot cancel: Chef has already started cooking all items!')
     return
   }
 
-  const confirmCancel = window.confirm(
-    `Are you sure you want to cancel Table ${table.value}'s pending order? This will void the ticket.`
-  )
-  if (!confirmCancel) return
+  // If this table has older delivered / cooking dishes, ONLY cancel the pending round
+  if (nonPendingOrderItems.value.length > 0) {
+    const confirmCancel = window.confirm(
+      `Cancel pending dishes for Table ${table.value}? Earlier delivered/cooking dishes will remain safe on the bill.`
+    )
+    if (!confirmCancel) return
 
-  cancelingOrder.value = true
-  try {
-    await cancelOrder(orderId, 'Cancelled by waiter before cooking started')
-    toast.success(`Order for Table ${table.value} has been cancelled.`)
-    updateOrderModalOpen.value = false
-    activeOrderModalOpen.value = false
-    table.value = null
-    await loadDynamicData()
-  } catch (err: any) {
-    toast.error(err.message || 'Failed to cancel order')
-  } finally {
-    cancelingOrder.value = false
+    cancelingOrder.value = true
+    try {
+      const pendingIds = pendingOrderItems.value.map(i => String(i.id || i._id))
+      await batchUpdateOrderItems(orderId, {
+        itemIdsToDelete: pendingIds,
+        itemsToUpdate: [],
+        itemsToAdd: [],
+      })
+      updateOrderModalOpen.value = false
+      toast.success('Pending dishes cancelled successfully')
+      await loadDynamicData()
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to cancel pending dishes')
+    } finally {
+      cancelingOrder.value = false
+    }
+  } else {
+    // First order round: can void the entire pending ticket
+    const confirmCancel = window.confirm(
+      `Are you sure you want to cancel Table ${table.value}'s pending order? This will void the ticket.`
+    )
+    if (!confirmCancel) return
+
+    cancelingOrder.value = true
+    try {
+      await cancelOrder(orderId, 'Cancelled by waiter before cooking started')
+      updateOrderModalOpen.value = false
+      activeOrderModalOpen.value = false
+      toast.success('Order cancelled successfully')
+      table.value = null
+      await loadDynamicData()
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to cancel order')
+    } finally {
+      cancelingOrder.value = false
+    }
   }
 }
 
-// Real-time notification if chef starts cooking while update modal is open
+// Real-time notification if chef starts cooking pending dishes while update modal is open
 watch(
-  () => activeOrderForTable.value?.status,
-  (newStatus) => {
-    if (updateOrderModalOpen.value && newStatus && (newStatus as string).toUpperCase() !== 'PENDING') {
-      toast.warning('⚠️ Chef has just started cooking! This order is now locked.', { duration: 6000 })
+  () => pendingOrderItems.value.length,
+  (newCount, oldCount) => {
+    if (updateOrderModalOpen.value && newCount === 0 && oldCount > 0) {
+      toast.warning('⚠️ Chef has just started cooking! Modifications are now locked.', { duration: 6000 })
+      updateOrderModalOpen.value = false
     }
   }
 )
@@ -980,14 +1026,17 @@ function formatTime(ts: string) {
             <div>
               <div class="flex items-center gap-2 flex-wrap">
                 <span class="font-display font-bold text-sm sm:text-base text-foreground">
-                  Order Pending in Kitchen
+                  Pending Dishes in Kitchen ({{ pendingOrderItems.length }})
                 </span>
                 <Badge class="bg-orange-500/20 text-orange-800 dark:text-orange-200 border-orange-500/30 text-[10px] font-bold">
                   Chef hasn't started cooking yet
                 </Badge>
+                <span v-if="nonPendingOrderItems.length > 0" class="text-[11px] text-muted-foreground font-medium">
+                  · {{ nonPendingOrderItems.length }} earlier dish{{ nonPendingOrderItems.length !== 1 ? 'es' : '' }} cooking/served
+                </span>
               </div>
               <p class="text-xs text-muted-foreground mt-0.5">
-                You can change quantities, add dishes, or delete items until chef clicks "Start Cooking".
+                You can adjust quantities, delete pending dishes, or add more items before chef clicks "Start Cooking".
               </p>
             </div>
           </div>
@@ -1676,29 +1725,38 @@ function formatTime(ts: string) {
               </div>
               <div>
                 <DialogTitle class="font-display text-xl font-bold">
-                  Update Table {{ table }} Order
+                  Update Table {{ table }} Pending Dishes
                 </DialogTitle>
                 <DialogDescription class="text-xs text-muted-foreground mt-0.5">
-                  Editable while Chef has not started cooking
+                  Editable dishes before Chef starts cooking
                 </DialogDescription>
               </div>
             </div>
             <Badge class="bg-orange-500/15 text-orange-700 dark:text-orange-300 border-orange-500/30 text-xs font-bold px-2.5 py-1">
-              {{ activeOrderForTable?.status || 'PENDING' }}
+              PENDING ({{ editableOrderItems.length }})
             </Badge>
           </div>
         </DialogHeader>
 
         <div class="flex-1 overflow-y-auto p-5 space-y-4">
+          <!-- Notice for earlier delivered/cooking dishes on this table -->
+          <div v-if="nonPendingOrderItems.length > 0" class="p-3 rounded-xl bg-muted/40 border border-border/80 flex items-center justify-between text-xs text-muted-foreground">
+            <div class="flex items-center gap-2">
+              <CheckCircle2 class="h-4 w-4 text-success shrink-0" />
+              <span><strong>{{ nonPendingOrderItems.length }} earlier dish{{ nonPendingOrderItems.length !== 1 ? 'es' : '' }}</strong> already cooking/delivered (kept safe on table bill)</span>
+            </div>
+            <Badge variant="outline" class="text-[10px] font-bold text-muted-foreground">Protected</Badge>
+          </div>
+
           <!-- Live Status Guard Banner -->
           <div
-            v-if="!isOrderPending"
+            v-if="!hasPendingItems"
             class="p-3 rounded-xl bg-destructive/10 border border-destructive/30 text-destructive flex items-start gap-2 text-xs"
           >
             <AlertCircle class="h-4 w-4 shrink-0 mt-0.5" />
             <div>
-              <strong>Order is now locked!</strong>
-              <p>Chef has pressed "Start Cooking". You can no longer update this order.</p>
+              <strong>Cooking in progress!</strong>
+              <p>Chef has pressed "Start Cooking". These dishes are now locked.</p>
             </div>
           </div>
           <div
@@ -1708,19 +1766,19 @@ function formatTime(ts: string) {
             <Clock class="h-4 w-4 shrink-0 mt-0.5 text-orange-600 dark:text-orange-400" />
             <div>
               <strong>Kitchen Status: Pending Cooking</strong>
-              <p>You can modify items, adjust quantities, or add more dishes. Once chef clicks "Start Cooking", modifications are locked.</p>
+              <p>You can adjust quantities, delete dishes, or add more items. Once chef clicks "Start Cooking", modifications are locked.</p>
             </div>
           </div>
 
-          <!-- Items in Order -->
+          <!-- Items in Order (strictly pending dishes) -->
           <div class="space-y-2">
             <div class="flex items-center justify-between text-xs font-bold text-muted-foreground uppercase tracking-wider">
-              <span>Ordered Dishes ({{ editableOrderItems.length }})</span>
+              <span>Pending Dishes ({{ editableOrderItems.length }})</span>
               <span>Quantity & Price</span>
             </div>
 
             <div v-if="editableOrderItems.length === 0" class="text-center py-8 text-muted-foreground text-xs border border-dashed rounded-xl p-4">
-              All items removed. Add a dish below or cancel the order.
+              All pending items removed. Add a dish below or cancel.
             </div>
 
             <div
@@ -1745,7 +1803,7 @@ function formatTime(ts: string) {
                 <div class="flex items-center gap-1.5 shrink-0">
                   <button
                     @click="decEditQty(idx)"
-                    :disabled="!isOrderPending || savingOrderUpdate"
+                    :disabled="!hasPendingItems || savingOrderUpdate"
                     class="h-8 w-8 grid place-items-center rounded-xl bg-muted hover:bg-muted/80 border border-border transition active:scale-95 disabled:opacity-40 cursor-pointer"
                     title="Decrease quantity"
                   >
@@ -1756,7 +1814,7 @@ function formatTime(ts: string) {
                   </span>
                   <button
                     @click="incEditQty(idx)"
-                    :disabled="!isOrderPending || savingOrderUpdate"
+                    :disabled="!hasPendingItems || savingOrderUpdate"
                     class="h-8 w-8 grid place-items-center rounded-xl gradient-primary text-primary-foreground shadow-xs active:scale-95 disabled:opacity-40 cursor-pointer"
                     title="Increase quantity"
                   >
@@ -1764,7 +1822,7 @@ function formatTime(ts: string) {
                   </button>
                   <button
                     @click="removeEditItem(idx)"
-                    :disabled="!isOrderPending || savingOrderUpdate"
+                    :disabled="!hasPendingItems || savingOrderUpdate"
                     class="h-8 w-8 grid place-items-center rounded-xl text-destructive hover:bg-destructive/10 ml-1 transition disabled:opacity-40 cursor-pointer"
                     title="Remove item"
                   >
@@ -1777,7 +1835,7 @@ function formatTime(ts: string) {
               <div class="pt-1 border-t border-border/40">
                 <Input
                   v-model="item.specialInstructions"
-                  :disabled="!isOrderPending || savingOrderUpdate"
+                  :disabled="!hasPendingItems || savingOrderUpdate"
                   placeholder="Special instructions (e.g. less spicy, no onion)…"
                   class="h-7 text-[11px] bg-muted/20"
                 />
@@ -1790,7 +1848,7 @@ function formatTime(ts: string) {
             <button
               v-if="!showAddDishPicker"
               @click="showAddDishPicker = true"
-              :disabled="!isOrderPending || savingOrderUpdate"
+              :disabled="!hasPendingItems || savingOrderUpdate"
               class="w-full py-2.5 px-3 rounded-xl border border-dashed border-primary/40 hover:border-primary text-primary hover:bg-primary/5 text-xs font-bold transition flex items-center justify-center gap-2 cursor-pointer disabled:opacity-40"
             >
               <Plus class="h-4 w-4" />
@@ -1839,7 +1897,7 @@ function formatTime(ts: string) {
             <label class="text-xs font-bold text-muted-foreground">Kitchen Ticket Notes</label>
             <Input
               v-model="editableOrderNotes"
-              :disabled="!isOrderPending || savingOrderUpdate"
+              :disabled="!hasPendingItems || savingOrderUpdate"
               placeholder="Overall note for kitchen (e.g. serve quick, pack extra chutney)…"
               class="h-9 text-xs bg-card"
             />
@@ -1848,16 +1906,20 @@ function formatTime(ts: string) {
           <!-- Updated Totals Summary -->
           <div class="p-4 rounded-2xl bg-muted/20 border border-border space-y-1.5 text-xs">
             <div class="flex justify-between text-muted-foreground">
-              <span>Subtotal</span>
+              <span>Pending Dishes Subtotal</span>
               <span class="tabular-nums font-semibold">₹{{ editableSubtotal.toFixed(0) }}</span>
+            </div>
+            <div v-if="nonPendingOrderItems.length > 0" class="flex justify-between text-muted-foreground">
+              <span>Earlier Dishes Subtotal</span>
+              <span class="tabular-nums font-semibold">₹{{ preservedSubtotal.toFixed(0) }}</span>
             </div>
             <div class="flex justify-between text-muted-foreground">
               <span>GST (8%)</span>
-              <span class="tabular-nums font-semibold">₹{{ editableTax.toFixed(0) }}</span>
+              <span class="tabular-nums font-semibold">₹{{ combinedTax.toFixed(0) }}</span>
             </div>
             <div class="flex justify-between font-display text-base font-bold pt-1.5 border-t border-border text-foreground">
-              <span>New Total</span>
-              <span class="tabular-nums text-primary font-bold">₹{{ editableTotal.toFixed(0) }}</span>
+              <span>Total Table Amount</span>
+              <span class="tabular-nums text-primary font-bold">₹{{ combinedTotal.toFixed(0) }}</span>
             </div>
           </div>
         </div>
@@ -1866,12 +1928,12 @@ function formatTime(ts: string) {
         <div class="p-4 border-t border-border bg-card flex flex-col sm:flex-row items-center justify-between gap-2.5">
           <Button
             @click="handleCancelPendingOrder"
-            :disabled="!isOrderPending || cancelingOrder || savingOrderUpdate"
+            :disabled="!hasPendingItems || cancelingOrder || savingOrderUpdate"
             variant="ghost"
             class="w-full sm:w-auto h-10 text-xs text-destructive hover:bg-destructive/10 font-bold cursor-pointer"
           >
             <Trash2 class="h-3.5 w-3.5 mr-1" />
-            {{ cancelingOrder ? 'Cancelling...' : 'Cancel Entire Order' }}
+            {{ cancelingOrder ? 'Cancelling...' : (nonPendingOrderItems.length > 0 ? 'Cancel Pending Dishes' : 'Cancel Entire Order') }}
           </Button>
 
           <div class="flex items-center gap-2 w-full sm:w-auto">
@@ -1884,11 +1946,11 @@ function formatTime(ts: string) {
             </Button>
             <Button
               @click="handleSaveOrderUpdate"
-              :disabled="!isOrderPending || savingOrderUpdate || editableOrderItems.length === 0"
+              :disabled="!hasPendingItems || savingOrderUpdate || (editableOrderItems.length === 0 && nonPendingOrderItems.length === 0)"
               class="flex-1 sm:flex-none h-10 px-5 gradient-primary text-primary-foreground text-xs font-bold shadow-glow cursor-pointer"
             >
               <Check class="h-4 w-4 mr-1.5" />
-              {{ savingOrderUpdate ? 'Updating...' : `Save Changes · ₹${editableTotal.toFixed(0)}` }}
+              {{ savingOrderUpdate ? 'Updating...' : `Save Changes · ₹${combinedTotal.toFixed(0)}` }}
             </Button>
           </div>
         </div>
