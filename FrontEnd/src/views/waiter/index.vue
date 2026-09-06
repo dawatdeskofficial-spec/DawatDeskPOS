@@ -50,8 +50,44 @@ const loading = ref(true)
 const placingOrder = ref(false)
 const allOrders = ref<any[]>([])
 const prevReadyIds = ref<Set<string>>(new Set())
+const isInitialOrderLoad = ref(true)
 const mobileCartOpen = ref(false)
 let interval: any
+
+function playReadyChime() {
+  try {
+    const AudioCtx = window.AudioContext || (window as any).webkitAudioContext
+    if (!AudioCtx) return
+    const ctx = new AudioCtx()
+    if (ctx.state === 'suspended') {
+      ctx.resume().catch(() => {})
+    }
+
+    const now = ctx.currentTime
+    // Dual pleasant restaurant service bell chime: A5 (880Hz) -> D6 (1174.66Hz)
+    const playTone = (freq: number, start: number, dur: number) => {
+      const osc = ctx.createOscillator()
+      const gain = ctx.createGain()
+      osc.type = 'sine'
+      osc.frequency.setValueAtTime(freq, start)
+      gain.gain.setValueAtTime(0.35, start)
+      gain.gain.exponentialRampToValueAtTime(0.0001, start + dur)
+      osc.connect(gain)
+      gain.connect(ctx.destination)
+      osc.start(start)
+      osc.stop(start + dur)
+    }
+
+    playTone(880, now, 0.35)
+    playTone(1174.66, now + 0.12, 0.55)
+
+    if ('vibrate' in navigator) {
+      navigator.vibrate([150, 80, 150])
+    }
+  } catch (e) {
+    console.debug('Ready notification chime error:', e)
+  }
+}
 
 // Search and filter states
 const menuSearch = ref('')
@@ -126,9 +162,12 @@ async function loadDynamicData() {
     const newReadyIds = new Set<string>(
       newReadyOrders.map((o: any) => String(o.id || o._id))
     )
+
+    let hasNewReadyArrival = false
     newReadyOrders.forEach((o: any) => {
       const oid = String(o.id || o._id)
       if (!prevReadyIds.value.has(oid)) {
+        hasNewReadyArrival = true
         const itemCount = (o.items || []).length
         const isParcel = o.orderType === 'PARCEL' || Number(o.tableNumber) === 0
         const title = isParcel ? `📦 Parcel for ${o.customerName || 'Takeaway'} is ready!` : `🔔 Table ${o.tableNumber} is ready!`
@@ -139,6 +178,11 @@ async function loadDynamicData() {
         toast.success(title, { description: desc, duration: 8000 })
       }
     })
+
+    if (hasNewReadyArrival && !isInitialOrderLoad.value) {
+      playReadyChime()
+    }
+    isInitialOrderLoad.value = false
     prevReadyIds.value = newReadyIds
     allOrders.value = rawOrders
 
@@ -209,7 +253,7 @@ async function loadDynamicData() {
 onMounted(() => {
   loadStaticData()
   loadDynamicData()
-  interval = setInterval(loadDynamicData, 5000)
+  interval = setInterval(loadDynamicData, 3500)
 })
 onUnmounted(() => clearInterval(interval))
 
@@ -703,6 +747,39 @@ function formatTime(ts: string) {
           </button>
         </div>
       </div>
+
+    <!-- Ready Orders Instant Alert Banner (Visible when on Take Order view) -->
+    <div
+      v-if="view === 'take_order' && readyOrders.length > 0"
+      @click="view = 'ready_orders'"
+      class="mb-5 p-3 sm:p-3.5 rounded-2xl bg-emerald-500/10 border-2 border-emerald-500/30 hover:border-emerald-500/60 shadow-md cursor-pointer transition flex items-center justify-between gap-3 group"
+    >
+      <div class="flex items-center gap-3 min-w-0">
+        <div class="h-9 w-9 rounded-xl bg-emerald-500 text-white grid place-items-center shrink-0 shadow-sm">
+          <BellRing class="h-5 w-5 animate-bounce" />
+        </div>
+        <div class="min-w-0">
+          <div class="flex items-center gap-2">
+            <span class="font-display font-bold text-sm text-foreground">
+              {{ readyOrders.length }} Order{{ readyOrders.length !== 1 ? 's' : '' }} Ready for Pickup!
+            </span>
+            <span class="text-[10px] font-bold px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 uppercase tracking-wider">
+              Kitchen Ready
+            </span>
+          </div>
+          <p class="text-xs text-muted-foreground truncate mt-0.5">
+            Kitchen has finished cooking. Tap to view ready list and mark served.
+          </p>
+        </div>
+      </div>
+      <Button
+        size="sm"
+        class="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold shrink-0 rounded-xl group-hover:translate-x-0.5 transition pointer-events-none"
+      >
+        View Ready
+        <ArrowRight class="h-3.5 w-3.5 ml-1" />
+      </Button>
+    </div>
 
     <!-- ══════════════════════════════════════════ -->
     <!--  1. READY ORDERS VIEW                      -->

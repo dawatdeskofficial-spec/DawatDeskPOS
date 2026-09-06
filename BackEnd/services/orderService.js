@@ -42,7 +42,7 @@ const getCachedMenuItems = async (menuItemIds) => {
 };
 
 class OrderService {
-  async syncOrderStatusFromItems(orderId) {
+  async syncOrderStatusFromItems(orderId, explicitStatus = null) {
     const items = await OrderItem.find({ orderId }).lean();
     if (!items || items.length === 0) return Order.findById(orderId);
 
@@ -51,25 +51,41 @@ class OrderService {
       return Order.findById(orderId);
     }
 
-    const statuses = activeItems.map((item) => item.status);
+    // Resolve menuItem fulfillmentOwner to distinguish kitchen dishes from waiter drinks
+    const menuItemIds = [...new Set(activeItems.map((i) => i.menuItemId).filter(Boolean))];
+    const menuItemMap = await getCachedMenuItems(menuItemIds);
+
+    const kitchenItems = activeItems.filter((i) => {
+      const mId = (i.menuItemId || '').toString();
+      const m = menuItemMap[mId];
+      return !m || m.fulfillmentOwner !== 'WAITER';
+    });
+
+    // Kitchen readiness determines whether the order is ready for waiter pickup from kitchen
+    const itemsToCheck = kitchenItems.length > 0 ? kitchenItems : activeItems;
+    const statuses = itemsToCheck.map((item) => item.status);
     let status = ORDER_STATUS.PENDING;
     let servedAt = null;
 
-    if (statuses.length > 0 && statuses.every((itemStatus) => itemStatus === 'DELIVERED')) {
+    if (activeItems.length > 0 && activeItems.every((it) => it.status === 'DELIVERED')) {
       status = ORDER_STATUS.SERVED;
       const currentOrder = await Order.findById(orderId).select('servedAt');
       servedAt = currentOrder?.servedAt || new Date();
-    } else if (statuses.every((itemStatus) => itemStatus === 'READY' || itemStatus === 'DELIVERED')) {
-      // ALL active items are ready (or delivered)! Waiter can pick up full order.
+    } else if (
+      explicitStatus === ORDER_STATUS.READY ||
+      statuses.every((s) => s === 'READY' || s === 'DELIVERED')
+    ) {
+      // ALL kitchen items are ready (or delivered)! Waiter can pick up order from kitchen.
       status = ORDER_STATUS.READY;
-    } else if (statuses.some((itemStatus) => itemStatus === 'READY' || itemStatus === 'PREPARING')) {
+    } else if (statuses.some((s) => s === 'READY' || s === 'PREPARING')) {
       // Partially ready or currently being cooked
       status = ORDER_STATUS.PREPARING;
     } else {
       status = ORDER_STATUS.PENDING;
     }
 
-    const update = { status, servedAt };
+    const update = { status };
+    if (servedAt) update.servedAt = servedAt;
 
     return Order.findByIdAndUpdate(orderId, update, { new: true });
   }
@@ -425,7 +441,14 @@ class OrderService {
           { orderId, ...filter, status: { $in: ['PENDING', 'PREPARING'] } },
           { status: 'READY' }
         );
-        updatedOrder = await this.syncOrderStatusFromItems(orderId);
+        // If all items or no specific item filter was provided, mark all non-cancelled items READY
+        if (validItemIds.length === 0) {
+          await OrderItem.updateMany(
+            { orderId, status: { $in: ['PENDING', 'PREPARING'] } },
+            { status: 'READY' }
+          );
+        }
+        updatedOrder = await this.syncOrderStatusFromItems(orderId, ORDER_STATUS.READY);
       } else if (newStatus === ORDER_STATUS.SERVED) {
         // Waiter/chef serves the order — mark all active items as DELIVERED
         const serveFilter = validItemIds.length > 0 ? { _id: { $in: validItemIds } } : {};

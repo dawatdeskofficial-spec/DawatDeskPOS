@@ -95,16 +95,19 @@ async function pollReadyOrders() {
       const oid = String(o.id || o._id)
       if (!seenReadyIds.value.has(oid)) {
         hasNewNotif.value = true
-        const itemCount = (o.items || []).length
-        toast(`🔔 Table ${o.tableNumber} is ready!`, {
-          description: `${itemCount} item${itemCount !== 1 ? 's' : ''} ready to pick up from kitchen`,
-          duration: 8000,
-          style: {
-            background: 'hsl(var(--success) / 0.15)',
-            border: '1px solid hsl(var(--success) / 0.4)',
-            color: 'hsl(var(--success))',
-          },
-        })
+        // Trigger toast only if not on /waiter (waiter/index.vue handles its own rich audio & toast on /waiter)
+        if (route.path !== '/waiter') {
+          const itemCount = (o.items || []).length
+          toast(`🔔 Table ${o.tableNumber} is ready!`, {
+            description: `${itemCount} item${itemCount !== 1 ? 's' : ''} ready to pick up from kitchen`,
+            duration: 8000,
+            style: {
+              background: 'hsl(var(--success) / 0.15)',
+              border: '1px solid hsl(var(--success) / 0.4)',
+              color: 'hsl(var(--success))',
+            },
+          })
+        }
       }
     })
 
@@ -179,10 +182,10 @@ onMounted(() => {
   }
   document.documentElement.classList.toggle('dark', dark.value)
 
-  // Start notification polling for waiters (only when not on /waiter, where index.vue handles its own polling)
-  if (isWaiter.value && route.path !== '/waiter') {
+  // Start notification polling for waiters so the top bar bell icon & drawer stay updated
+  if (isWaiter.value) {
     pollReadyOrders()
-    notifInterval = setInterval(pollReadyOrders, 5000)
+    notifInterval = setInterval(pollReadyOrders, 4000)
   }
 
   // Push a dummy history entry so the back button can be intercepted
