@@ -36,7 +36,7 @@ app.use(express.urlencoded({ extended: true }));
 
 // Logging middleware
 app.use(
-  morgan('combined', {
+  morgan(process.env.VERCEL ? 'tiny' : 'combined', {
     stream: {
       write: (message) => logger.info(message.trim()),
     },

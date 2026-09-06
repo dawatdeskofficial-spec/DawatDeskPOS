@@ -32,22 +32,54 @@ const forgot = ref(false)
 const error = ref('')
 const isLoading = ref(false)
 
+const roleChunkLoaders: Record<AppRole, () => Promise<any>> = {
+  main_admin: () => import('@/views/admin/Dashboard.vue'),
+  restaurant_admin: () => import('@/views/restaurant/Dashboard.vue'),
+  waiter: () => import('@/views/waiter/index.vue'),
+  chef: () => import('@/views/chef/index.vue'),
+  cashier: () => import('@/views/cashier/index.vue'),
+}
+
+function preloadRoleChunk(r: AppRole) {
+  try {
+    roleChunkLoaders[r]?.().catch(() => {})
+  } catch {
+    // Non-blocking preloading
+  }
+}
+
 onMounted(() => {
   if (auth.user) {
     router.push(ROLE_HOMES[auth.user.role] || '/')
+    return
   }
+  // Preload default selected role chunk and shared layout immediately
+  preloadRoleChunk(selected.value)
+  import('@/components/RoleLayout.vue').catch(() => {})
+
+  // Idle preloading for other role chunks
+  const idleCallback = (window as any).requestIdleCallback || ((cb: () => void) => setTimeout(cb, 600))
+  idleCallback(() => {
+    roleOptions.forEach(opt => {
+      if (opt.role !== selected.value) {
+        preloadRoleChunk(opt.role)
+      }
+    })
+  })
 })
 
 watch(selected, (newRole) => {
   const creds = demoCredentials[newRole]
   email.value = creds.email
   password.value = creds.password
+  preloadRoleChunk(newRole)
 })
 
 async function submit() {
   if (isLoading.value) return
   error.value = ''
   isLoading.value = true
+  preloadRoleChunk(selected.value)
   
   try {
     let loginEmail = email.value.trim()
@@ -69,6 +101,7 @@ async function launchKioskDemo() {
   if (isLoading.value) return
   error.value = ''
   isLoading.value = true
+  import('@/views/customer-ordering/index.vue').catch(() => {})
   
   try {
     const creds = demoCredentials.waiter
@@ -174,6 +207,7 @@ async function launchKioskDemo() {
                 :key="opt.role"
                 type="button"
                 @click="selected = opt.role"
+                @mouseenter="preloadRoleChunk(opt.role)"
                 :class="['flex items-center gap-3 p-3 rounded-xl border text-left transition-all', selected === opt.role ? 'border-primary bg-primary/10 shadow-soft' : 'border-border hover:border-primary/40 hover:bg-muted/40']"
               >
                 <div

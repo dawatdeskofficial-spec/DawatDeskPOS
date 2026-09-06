@@ -8,6 +8,39 @@ const logger = require('../utils/logger');
 const { ORDER_STATUS } = require('../utils/constants');
 const mongoose = require('mongoose');
 
+// In-memory cache for MenuItem projections to avoid repetitive DB queries on order polling (60s TTL)
+const menuItemCache = new Map();
+
+const getCachedMenuItems = async (menuItemIds) => {
+  if (!menuItemIds || menuItemIds.length === 0) return {};
+  const now = Date.now();
+  const missingIds = [];
+  const result = {};
+
+  for (const id of menuItemIds) {
+    const idStr = id.toString();
+    const cached = menuItemCache.get(idStr);
+    if (cached && now < cached.expiry) {
+      result[idStr] = cached.item;
+    } else {
+      missingIds.push(id);
+    }
+  }
+
+  if (missingIds.length > 0) {
+    const fetched = await MenuItem.find({ _id: { $in: missingIds } })
+      .select('name price category fulfillmentOwner')
+      .lean();
+    for (const item of fetched) {
+      const idStr = item._id.toString();
+      menuItemCache.set(idStr, { item, expiry: now + 60000 });
+      result[idStr] = item;
+    }
+  }
+
+  return result;
+};
+
 class OrderService {
   async syncOrderStatusFromItems(orderId) {
     const items = await OrderItem.find({ orderId }).lean();
@@ -60,15 +93,9 @@ class OrderService {
     const orderIds = orders.map((order) => order._id || order.id);
     const items = await OrderItem.find({ orderId: { $in: orderIds } }).lean();
 
-    // Get all unique menuItemIds
+    // Get all unique menuItemIds and resolve from cache/DB
     const menuItemIds = [...new Set(items.map(item => item.menuItemId).filter(Boolean))];
-    const menuItems = await MenuItem.find({ _id: { $in: menuItemIds } })
-      .select('name price category fulfillmentOwner')
-      .lean();
-    const menuItemMap = menuItems.reduce((map, item) => {
-      map[item._id.toString()] = item;
-      return map;
-    }, {});
+    const menuItemMap = await getCachedMenuItems(menuItemIds);
 
     const grouped = items.reduce((map, item) => {
       const id = item.orderId?.toString();

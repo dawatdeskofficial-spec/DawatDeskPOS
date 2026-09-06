@@ -60,7 +60,9 @@ const method              = ref<'CASH' | 'DIGITAL_WALLET' | 'CARD'>('CASH')
 const cashGiven           = ref<string>('')
 const orders              = ref<any[]>([])
 const transactions        = ref<any[]>([])
-const restaurant          = ref<any>(null)
+const restaurant = ref<any>(
+  typeof auth.user?.restaurantId === 'object' && auth.user?.restaurantId ? auth.user.restaurantId : null
+)
 const menuItems           = ref<any[]>([])
 const categories          = ref<MenuCategory[]>([])
 const loading       = ref(true)

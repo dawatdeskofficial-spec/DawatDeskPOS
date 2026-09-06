@@ -31,20 +31,20 @@ const findResourceRestaurantId = async (req, resourceType) => {
   if (resourceType === 'order') {
     const orderId = req.params?.orderId || req.params?.id || req.body?.orderId;
     if (!orderId || !mongoose.Types.ObjectId.isValid(orderId)) return null;
-    const order = await Order.findById(orderId).select('restaurantId');
+    const order = await Order.findById(orderId).select('restaurantId').lean();
     return getId(order?.restaurantId);
   }
 
   if (resourceType === 'payment') {
     const paymentId = req.params?.paymentId || req.params?.id;
     if (paymentId && mongoose.Types.ObjectId.isValid(paymentId)) {
-      const payment = await Payment.findById(paymentId).select('restaurantId');
+      const payment = await Payment.findById(paymentId).select('restaurantId').lean();
       return getId(payment?.restaurantId);
     }
 
     const orderId = req.body?.orderId;
     if (orderId && mongoose.Types.ObjectId.isValid(orderId)) {
-      const order = await Order.findById(orderId).select('restaurantId');
+      const order = await Order.findById(orderId).select('restaurantId').lean();
       return getId(order?.restaurantId);
     }
   }
@@ -52,7 +52,7 @@ const findResourceRestaurantId = async (req, resourceType) => {
   if (resourceType === 'menu') {
     const menuItemId = req.params?.menuItemId || req.params?.id || req.body?.menuItemId;
     if (menuItemId && mongoose.Types.ObjectId.isValid(menuItemId)) {
-      const menuItem = await MenuItem.findById(menuItemId).select('restaurantId');
+      const menuItem = await MenuItem.findById(menuItemId).select('restaurantId').lean();
       return getId(menuItem?.restaurantId);
     }
   }
@@ -60,7 +60,7 @@ const findResourceRestaurantId = async (req, resourceType) => {
   if (resourceType === 'category') {
     const categoryId = req.params?.categoryId || req.params?.id || req.body?.categoryId;
     if (categoryId && mongoose.Types.ObjectId.isValid(categoryId)) {
-      const category = await Category.findById(categoryId).select('restaurantId');
+      const category = await Category.findById(categoryId).select('restaurantId').lean();
       return getId(category?.restaurantId);
     }
   }
@@ -68,7 +68,7 @@ const findResourceRestaurantId = async (req, resourceType) => {
   if (resourceType === 'waitingQueue') {
     const queueId = req.params?.id || req.body?.queueId;
     if (queueId && mongoose.Types.ObjectId.isValid(queueId)) {
-      const queueEntry = await WaitingQueue.findById(queueId).select('restaurantId');
+      const queueEntry = await WaitingQueue.findById(queueId).select('restaurantId').lean();
       return getId(queueEntry?.restaurantId);
     }
   }
@@ -76,7 +76,7 @@ const findResourceRestaurantId = async (req, resourceType) => {
   if (resourceType === 'user') {
     const userId = req.params?.userId || req.params?.id;
     if (userId && mongoose.Types.ObjectId.isValid(userId)) {
-      const targetUser = await User.findById(userId).select('restaurantId role');
+      const targetUser = await User.findById(userId).select('restaurantId role').lean();
       if (normalizeRole(targetUser?.role) === 'MAIN_ADMIN') return null;
       return getId(targetUser?.restaurantId);
     }

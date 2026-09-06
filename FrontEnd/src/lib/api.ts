@@ -311,9 +311,9 @@ export const getOrders = async (restaurantId: string, page = 1, limit = 20, stat
   if (status) {
     url += `&status=${status}`;
   }
-  return authFetch(url, {
+  return cachedAuthFetch(url, {
     method: "GET",
-  });
+  }, 2.5);
 };
 
 export const getOrdersByTable = async (
@@ -322,11 +322,12 @@ export const getOrdersByTable = async (
   page = 1,
   limit = 20,
 ) => {
-  return authFetch(
+  return cachedAuthFetch(
     `/api/orders/restaurant/${restaurantId}/table/${tableNumber}?page=${page}&limit=${limit}`,
     {
       method: "GET",
     },
+    2.5
   );
 };
 
@@ -427,9 +428,9 @@ export const createPayment = async (data: {
 };
 
 export const getPayments = async (restaurantId: string, page = 1, limit = 1000) => {
-  return authFetch(`/api/payments/restaurant/${restaurantId}?page=${page}&limit=${limit}`, {
+  return cachedAuthFetch(`/api/payments/restaurant/${restaurantId}?page=${page}&limit=${limit}`, {
     method: "GET",
-  });
+  }, 2.5);
 };
 
 export const refundPayment = async (paymentId: string, reason: string) => {
@@ -441,13 +442,13 @@ export const refundPayment = async (paymentId: string, reason: string) => {
 
 // User/Staff APIs
 export const getUsersByRestaurant = async (restaurantId: string, page = 1, limit = 20) => {
-  return authFetch(`/api/users/restaurant/${restaurantId}?page=${page}&limit=${limit}`, {
+  return cachedAuthFetch(`/api/users/restaurant/${restaurantId}?page=${page}&limit=${limit}`, {
     method: "GET",
-  });
+  }, 15);
 };
 
 export const getAllUsers = async (page = 1, limit = 20) => {
-  return authFetch(`/api/users?page=${page}&limit=${limit}`, { method: "GET" });
+  return cachedAuthFetch(`/api/users?page=${page}&limit=${limit}`, { method: "GET" }, 15);
 };
 
 export const deactivateUser = async (userId: string) => {
@@ -546,4 +547,47 @@ export const deleteWaitingQueueEntry = async (id: string) => {
     method: "DELETE",
   });
 };
+
+// Non-blocking dashboard prefetch to instantly warm client cache upon login
+export const prefetchDashboardData = (user: BackendUser) => {
+  if (!user) return;
+  const restaurantId = typeof user.restaurantId === 'string'
+    ? user.restaurantId
+    : (user.restaurantId as any)?.id || (user.restaurantId as any)?._id;
+
+  try {
+    const role = user.role?.toLowerCase();
+    if (role === 'waiter' && restaurantId) {
+      getRestaurantById(restaurantId);
+      getMenuItems(restaurantId);
+      getCategoriesByRestaurant(restaurantId);
+      getOrders(restaurantId, 1, 100);
+      getWaitingQueue(restaurantId);
+    } else if (role === 'cashier' && restaurantId) {
+      getRestaurantById(restaurantId);
+      getMenuItems(restaurantId, 1, 500);
+      getCategoriesByRestaurant(restaurantId);
+      getOrders(restaurantId, 1, 100);
+      getPayments(restaurantId, 1, 50);
+      getWaitingQueue(restaurantId, undefined, false);
+    } else if (role === 'chef' && restaurantId) {
+      getMenuItems(restaurantId, 1, 500);
+      getCategoriesByRestaurant(restaurantId);
+      getOrders(restaurantId, 1, 100);
+    } else if (role === 'restaurant_admin' && restaurantId) {
+      getRestaurantById(restaurantId);
+      getUsersByRestaurant(restaurantId, 1, 100);
+      getOrders(restaurantId, 1, 100);
+      getPayments(restaurantId, 1, 100);
+    } else if (role === 'main_admin') {
+      getRestaurants();
+      getAllUsers(1, 1000);
+      getOrders('all', 1, 500);
+      getPayments('all', 1, 500);
+    }
+  } catch {
+    // Non-blocking prefetch; errors handled on component mount
+  }
+};
+
 

@@ -23,11 +23,11 @@ const cacheMiddleware = (prefix, ttl = 300) => {
         .join('&');
       
       const userId = req.user && req.user.id ? req.user.id : 'anon';
-      const role = req.user && req.user.role ? req.user.role : 'public';
+      const role = req.user && req.user.role ? req.user.role.toString().toLowerCase() : 'public';
       
       // Determine base identifier (usually restaurantId from params or user)
       const userRestId = req.user ? (req.user.restaurantId?._id || req.user.restaurantId?.id || req.user.restaurantId) : null;
-      const restaurantId = req.params.restaurantId || (userRestId ? userRestId.toString() : 'all');
+      const restaurantId = req.params.restaurantId || req.params.id || (userRestId ? userRestId.toString() : 'all');
       
       const cacheKey = `${prefix}:restaurant:${restaurantId}:query:${queryStr}:role:${role}`;
       

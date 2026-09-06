@@ -14,25 +14,28 @@ class CategoryService {
     if (!withItemCounts || categories.length === 0) return categories;
 
     const categoryIds = categories.map((category) => category._id);
-    const [itemCounts, availableItemCounts] = await Promise.all([
-      MenuItem.aggregate([
-        { $match: { restaurantId: categories[0].restaurantId, categoryId: { $in: categoryIds } } },
-        { $group: { _id: '$categoryId', count: { $sum: 1 } } },
-      ]),
-      MenuItem.aggregate([
-        { $match: { restaurantId: categories[0].restaurantId, categoryId: { $in: categoryIds }, isAvailable: true } },
-        { $group: { _id: '$categoryId', count: { $sum: 1 } } },
-      ]),
+    const aggregatedCounts = await MenuItem.aggregate([
+      { $match: { restaurantId: categories[0].restaurantId, categoryId: { $in: categoryIds } } },
+      {
+        $group: {
+          _id: '$categoryId',
+          totalCount: { $sum: 1 },
+          availableCount: {
+            $sum: { $cond: [{ $ne: ['$isAvailable', false] }, 1, 0] }
+          }
+        }
+      }
     ]);
 
-    const countMap = itemCounts.reduce((map, item) => {
-      map[item._id.toString()] = item.count;
-      return map;
-    }, {});
-    const availableCountMap = availableItemCounts.reduce((map, item) => {
-      map[item._id.toString()] = item.count;
-      return map;
-    }, {});
+    const countMap = {};
+    const availableCountMap = {};
+    aggregatedCounts.forEach((item) => {
+      const idStr = item._id ? item._id.toString() : '';
+      if (idStr) {
+        countMap[idStr] = item.totalCount || 0;
+        availableCountMap[idStr] = item.availableCount || 0;
+      }
+    });
 
     const enriched = categories.map((category) => ({
       ...category,

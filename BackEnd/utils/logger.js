@@ -17,7 +17,10 @@ const errorLogFile = path.join(logsDir, 'error.log');
 
 const timestamp = () => new Date().toISOString();
 
+const isServerless = Boolean(process.env.VERCEL);
+
 const appendLog = (file, message) => {
+  if (isServerless) return;
   try {
     fs.appendFileSync(file, message);
   } catch (error) {

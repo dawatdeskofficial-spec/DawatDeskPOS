@@ -22,7 +22,9 @@ const activeMobileTab = ref<'orders' | 'kitchen' | 'floor' | 'analytics' | 'quic
 const orders = ref<any[]>([])
 const payments = ref<any[]>([])
 const staffList = ref<any[]>([])
-const restaurant = ref<any>(null)
+const restaurant = ref<any>(
+  typeof auth.user?.restaurantId === 'object' && auth.user?.restaurantId ? auth.user.restaurantId : null
+)
 let interval: any
 
 const STATUS_TONE: Record<string, string> = {

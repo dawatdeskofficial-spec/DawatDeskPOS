@@ -4,6 +4,7 @@ const restaurantController = require('../controllers/restaurantController');
 const authenticate = require('../middlewares/authenticate');
 const { authorize } = require('../middlewares/authorize');
 const validateRestaurantOwnership = require('../middlewares/validateRestaurantOwnership');
+const cacheMiddleware = require('../middlewares/cacheMiddleware');
 const { validateRestaurant, handleValidationErrors } = require('../validators/index');
 
 // Create restaurant (MAIN_ADMIN only)
@@ -19,13 +20,13 @@ router.post(
 );
 
 // Get all active restaurants for public customer ordering
-router.get('/public', (req, res) => {
+router.get('/public', cacheMiddleware('restaurant-public', 120), (req, res) => {
   req.query.status = 'ACTIVE';
   restaurantController.getAllRestaurants(req, res);
 });
 
 // Get public restaurant by ID
-router.get('/public/:id', (req, res) => {
+router.get('/public/:id', cacheMiddleware('restaurant-public', 120), (req, res) => {
   restaurantController.getRestaurantById(req, res);
 });
 
@@ -35,7 +36,7 @@ router.get('/', authenticate, authorize('MAIN_ADMIN'), (req, res) => {
 });
 
 // Get restaurant by ID
-router.get('/:id', authenticate, validateRestaurantOwnership('restaurant'), (req, res) => {
+router.get('/:id', authenticate, validateRestaurantOwnership('restaurant'), cacheMiddleware('restaurant', 60), (req, res) => {
   restaurantController.getRestaurantById(req, res);
 });
 

@@ -3,29 +3,46 @@ require('dotenv').config();
 const mongoose = require('mongoose');
 const logger = require('../utils/logger');
 
+// Global connection cache across serverless function invocations
+let cached = global.mongoose;
+if (!cached) {
+  cached = global.mongoose = { conn: null, promise: null };
+}
+
 const connectDB = async () => {
   try {
-    if (!process.env.MONGODB_URI) {
+    const uri = process.env.MONGODB_URI || process.env.MONGO_URI;
+    if (!uri) {
       throw new Error('MONGODB_URI is not defined in environment variables');
     }
 
-    if (mongoose.connection.readyState >= 1) {
-      console.log('✅ Using existing MongoDB connection');
-      return;
+    if (cached.conn && mongoose.connection.readyState === 1) {
+      return cached.conn;
     }
 
-    console.log('MongoDB URI configured: true');
+    if (!cached.promise) {
+      const opts = {
+        family: 4,
+        maxPoolSize: 10,
+        minPoolSize: 1,
+        serverSelectionTimeoutMS: 5000,
+        socketTimeoutMS: 20000,
+        connectTimeoutMS: 10000,
+      };
 
-    await mongoose.connect(process.env.MONGODB_URI, {
-      family: 4,
-      serverSelectionTimeoutMS: 15000,
-    });
+      cached.promise = mongoose.connect(uri, opts).then((mongooseInstance) => {
+        const host = mongooseInstance.connection.host || 'unknown-host';
+        const message = `✅ MongoDB Atlas connected successfully: ${host}`;
+        logger.info(message);
+        return mongooseInstance;
+      });
+    }
 
-    const host = mongoose.connection.host || 'unknown-host';
-    const message = `✅ MongoDB Atlas connected successfully: ${host}`;
-    console.log(message);
-    logger.info(message);
+    cached.conn = await cached.promise;
+    return cached.conn;
   } catch (error) {
+    cached.promise = null;
+    cached.conn = null;
     const message = error && error.message ? error.message : String(error);
     const errorMessage = `❌ MongoDB Atlas Connection Error: ${message}`;
     console.error(errorMessage);

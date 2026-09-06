@@ -6,6 +6,7 @@ import {
   getCurrentUser,
   updateUser as updateUserApi,
   saveToken,
+  prefetchDashboardData,
 } from '@/lib/api'
 
 export type AppRole = "main_admin" | "restaurant_admin" | "waiter" | "chef" | "cashier";
@@ -68,6 +69,7 @@ export const useAuthStore = defineStore('auth', () => {
       const userData = response.data as BackendUser;
       user.value = userData;
       role.value = parseRole(userData.role);
+      prefetchDashboardData(userData);
     } catch (error) {
       console.error("Failed to refresh user:", error);
       saveToken(null);
@@ -84,6 +86,7 @@ export const useAuthStore = defineStore('auth', () => {
     saveToken(payload.token);
     user.value = payload.user;
     role.value = parseRole(payload.user.role);
+    prefetchDashboardData(payload.user);
   }
 
   async function signUp(name: string, email: string, password: string, r: AppRole) {

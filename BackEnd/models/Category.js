@@ -51,5 +51,6 @@ categorySchema.pre('validate', function () {
 
 categorySchema.index({ restaurantId: 1, normalizedName: 1 }, { unique: true });
 categorySchema.index({ restaurantId: 1, displayOrder: 1 });
+categorySchema.index({ restaurantId: 1, isActive: 1, displayOrder: 1 });
 
 module.exports = mongoose.model('Category', categorySchema);

@@ -1,4 +1,5 @@
 const jwt = require('jsonwebtoken');
+const bcrypt = require('bcryptjs');
 const NodeCache = require('node-cache');
 const User = require('../models/User');
 const Restaurant = require('../models/Restaurant');
@@ -9,11 +10,14 @@ const { normalizeRole, formatRoleForClient } = require('../utils/constants');
 const userAuthCache = new NodeCache({ stdTTL: 30, checkperiod: 60 });
 
 class AuthService {
-  // Generate JWT token
-  generateToken(userId, role) {
+  // Generate JWT token with embedded fast-auth metadata
+  generateToken(userId, role, restaurantId = null, name = '', email = '') {
     try {
+      const restId = restaurantId
+        ? (restaurantId._id || restaurantId.id || restaurantId).toString()
+        : null;
       const token = jwt.sign(
-        { userId, role },
+        { userId, role, restaurantId: restId, name, email },
         process.env.JWT_SECRET,
         { expiresIn: '7d' }
       );
@@ -21,6 +25,18 @@ class AuthService {
     } catch (error) {
       logger.error(`Token generation error: ${error.message}`);
       throw error;
+    }
+  }
+
+  // Fast cache accessors
+  getCachedUser(userId) {
+    if (!userId) return null;
+    return userAuthCache.get(userId.toString()) || null;
+  }
+
+  setCachedUser(userId, user) {
+    if (userId && user) {
+      userAuthCache.set(userId.toString(), user);
     }
   }
 
@@ -34,10 +50,11 @@ class AuthService {
   // Login user
   async loginUser(email, password) {
     try {
-      // Find user by email with targeted restaurant projection
-      const user = await User.findOne({ email })
+      // Find user by email with targeted restaurant projection using lean
+      const user = await User.findOne({ email: (email || '').toLowerCase().trim() })
         .select('+password')
-        .populate('restaurantId', 'name location city status isActive maxTables gstPercentage');
+        .populate('restaurantId', 'name location city status isActive maxTables gstPercentage')
+        .lean();
       if (!user) {
         throw new Error('Invalid credentials');
       }
@@ -46,23 +63,27 @@ class AuthService {
         throw new Error('User account is inactive');
       }
 
-      // Check password
-      const isPasswordValid = await user.matchPassword(password);
+      // Check password using bcrypt directly
+      const isPasswordValid = await bcrypt.compare(password, user.password);
       if (!isPasswordValid) {
         throw new Error('Invalid credentials');
       }
 
-      // Generate token
-      const token = this.generateToken(user._id, user.role);
-
-      logger.info(`User logged in: ${user.email}`);
-
-      const restObj = user.restaurantId
-        ? (user.restaurantId.toObject ? user.restaurantId.toObject() : user.restaurantId)
-        : null;
+      const restObj = user.restaurantId || null;
       if (restObj && restObj._id) {
         restObj.id = restObj._id.toString();
       }
+
+      // Generate token with fast-auth claims
+      const token = this.generateToken(
+        user._id,
+        user.role,
+        restObj,
+        user.name,
+        user.email
+      );
+
+      logger.info(`User logged in: ${user.email}`);
 
       const userClient = {
         id: user._id.toString(),
