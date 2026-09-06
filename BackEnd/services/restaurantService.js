@@ -21,12 +21,13 @@ class RestaurantService {
       const skip = (page - 1) * limit;
       const query = { ...filters };
 
-      const restaurants = await Restaurant.find(query)
-        .limit(limit)
-        .skip(skip)
-        .lean();
-
-      const total = await Restaurant.countDocuments(query);
+      const [restaurants, total] = await Promise.all([
+        Restaurant.find(query)
+          .limit(limit)
+          .skip(skip)
+          .lean(),
+        Restaurant.countDocuments(query),
+      ]);
 
       return { restaurants, total, page, limit };
     } catch (error) {
@@ -38,10 +39,11 @@ class RestaurantService {
   // Get restaurant by ID
   async getRestaurantById(restaurantId) {
     try {
-      const restaurant = await Restaurant.findById(restaurantId);
+      const restaurant = await Restaurant.findById(restaurantId).lean();
       if (!restaurant) {
         throw new Error('Restaurant not found');
       }
+      restaurant.id = restaurant._id ? restaurant._id.toString() : restaurant.id;
       return restaurant;
     } catch (error) {
       logger.error(`Get restaurant error: ${error.message}`);

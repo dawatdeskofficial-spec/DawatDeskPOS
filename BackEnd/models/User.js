@@ -70,8 +70,8 @@ userSchema.methods.matchPassword = async function (enteredPassword) {
   return await bcrypt.compare(enteredPassword, this.password);
 };
 
-// Note: password is protected by `select: false` in the schema.
-// Do NOT add a post-find hook that deletes password — it breaks login
-// because authService uses .select('+password') which needs the field intact.
+// Indexes for faster staff and restaurant queries
+userSchema.index({ restaurantId: 1 });
+userSchema.index({ restaurantId: 1, role: 1 });
 
 module.exports = mongoose.model('User', userSchema);

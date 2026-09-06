@@ -148,6 +148,12 @@ async function resolveRestaurantBrand() {
     return
   }
 
+  // Fast path: use already populated restaurant name from login/auth payload
+  if (typeof user.restaurantId === 'object' && (user.restaurantId as any)?.name) {
+    restaurantName.value = String((user.restaurantId as any).name)
+    return
+  }
+
   const restaurantId = auth.effectiveRestaurantId || (
     typeof user?.restaurantId === 'string'
       ? user.restaurantId
@@ -173,8 +179,8 @@ onMounted(() => {
   }
   document.documentElement.classList.toggle('dark', dark.value)
 
-  // Start notification polling for waiters
-  if (isWaiter.value) {
+  // Start notification polling for waiters (only when not on /waiter, where index.vue handles its own polling)
+  if (isWaiter.value && route.path !== '/waiter') {
     pollReadyOrders()
     notifInterval = setInterval(pollReadyOrders, 5000)
   }
@@ -215,7 +221,7 @@ watch(() => [auth.user, auth.inspectedRestaurantId], async () => {
 // Start polling when role becomes waiter
 watch(isWaiter, (val) => {
   clearInterval(notifInterval)
-  if (val) {
+  if (val && route.path !== '/waiter') {
     pollReadyOrders()
     notifInterval = setInterval(pollReadyOrders, 5000)
   }

@@ -4,6 +4,7 @@ const OrderItem = require('../models/OrderItem');
 const WaitingQueue = require('../models/WaitingQueue');
 const SystemSettings = require('../models/SystemSettings');
 const Restaurant = require('../models/Restaurant');
+const User = require('../models/User');
 const logger = require('../utils/logger');
 const { ORDER_STATUS } = require('../utils/constants');
 
@@ -130,18 +131,25 @@ class PaymentService {
         query.status = status;
       }
 
-      const payments = await Payment.find(query)
-        .populate('restaurantId', 'name location city')
-        .populate({
-          path: 'orderId',
-          populate: { path: 'createdBy', select: 'name email role' },
-        })
-        .populate('createdBy', 'name email role')
-        .sort({ createdAt: -1 })
-        .limit(limit)
-        .skip(skip);
+      const [rawPayments, total] = await Promise.all([
+        Payment.find(query)
+          .populate('restaurantId', 'name location city')
+          .populate({
+            path: 'orderId',
+            populate: { path: 'createdBy', select: 'name email role' },
+          })
+          .populate('createdBy', 'name email role')
+          .sort({ createdAt: -1 })
+          .limit(limit)
+          .skip(skip)
+          .lean(),
+        Payment.countDocuments(query),
+      ]);
 
-      const total = await Payment.countDocuments(query);
+      const payments = rawPayments.map(p => ({
+        ...p,
+        id: p._id ? p._id.toString() : p.id,
+      }));
 
       // Attach items to populated orders
       const orders = payments.map(p => p.orderId).filter(Boolean);
@@ -163,9 +171,7 @@ class PaymentService {
           if (payments[i].orderId) {
             const orderIdStr = (payments[i].orderId._id || payments[i].orderId.id || payments[i].orderId).toString();
             if (orderMap[orderIdStr]) {
-              const plainPayment = payments[i].toObject ? payments[i].toObject() : payments[i];
-              plainPayment.orderId = orderMap[orderIdStr];
-              payments[i] = plainPayment;
+              payments[i].orderId = orderMap[orderIdStr];
             }
           }
         }

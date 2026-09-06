@@ -204,7 +204,7 @@ export const createRestaurant = async (data: {
 };
 
 export const getRestaurantById = async (restaurantId: string) => {
-  return authFetch(`/api/restaurants/${restaurantId}`, { method: "GET" });
+  return cachedAuthFetch(`/api/restaurants/${restaurantId}`, { method: "GET" }, 60);
 };
 
 export const updateRestaurant = async (restaurantId: string, data: Record<string, unknown>) => {
@@ -509,7 +509,7 @@ export const getWaitingQueue = async (restaurantId: string, status?: string, all
   if (status) {
     url += `&status=${status}`;
   }
-  return authFetch(url, { method: "GET" });
+  return cachedAuthFetch(url, { method: "GET" }, 3);
 };
 
 export const addToWaitingQueue = async (data: {

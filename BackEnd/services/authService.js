@@ -1,7 +1,12 @@
 const jwt = require('jsonwebtoken');
+const NodeCache = require('node-cache');
 const User = require('../models/User');
+const Restaurant = require('../models/Restaurant');
 const logger = require('../utils/logger');
 const { normalizeRole, formatRoleForClient } = require('../utils/constants');
+
+// Fast in-memory cache for authenticated user sessions (30s TTL)
+const userAuthCache = new NodeCache({ stdTTL: 30, checkperiod: 60 });
 
 class AuthService {
   // Generate JWT token
@@ -19,11 +24,20 @@ class AuthService {
     }
   }
 
+  // Invalidate cached user on updates/logout
+  invalidateUserCache(userId) {
+    if (userId) {
+      userAuthCache.del(userId.toString());
+    }
+  }
+
   // Login user
   async loginUser(email, password) {
     try {
-      // Find user by email
-      const user = await User.findOne({ email }).select('+password').populate('restaurantId');
+      // Find user by email with targeted restaurant projection
+      const user = await User.findOne({ email })
+        .select('+password')
+        .populate('restaurantId', 'name location city status isActive maxTables gstPercentage');
       if (!user) {
         throw new Error('Invalid credentials');
       }
@@ -43,14 +57,32 @@ class AuthService {
 
       logger.info(`User logged in: ${user.email}`);
 
+      const restObj = user.restaurantId
+        ? (user.restaurantId.toObject ? user.restaurantId.toObject() : user.restaurantId)
+        : null;
+      if (restObj && restObj._id) {
+        restObj.id = restObj._id.toString();
+      }
+
+      const userClient = {
+        id: user._id.toString(),
+        name: user.name,
+        email: user.email,
+        role: formatRoleForClient(user.role),
+        restaurantId: restObj,
+      };
+
+      // Prime the user auth cache so subsequent init/me calls are instantaneous
+      userAuthCache.set(user._id.toString(), {
+        ...userClient,
+        _id: user._id,
+        isActive: user.isActive,
+        phone: user.phone || '',
+        location: user.location || '',
+      });
+
       return {
-        user: {
-          id: user._id,
-          name: user.name,
-          email: user.email,
-          role: formatRoleForClient(user.role),
-          restaurantId: user.restaurantId,
-        },
+        user: userClient,
         token,
       };
     } catch (error) {
@@ -94,19 +126,32 @@ class AuthService {
     }
   }
 
-  // Get user by ID
+  // Get user by ID with lean projection and in-memory caching
   async getUserById(userId) {
     try {
-      const user = await User.findById(userId).populate('restaurantId');
+      const cacheKey = userId.toString();
+      const cached = userAuthCache.get(cacheKey);
+      if (cached) {
+        return { ...cached };
+      }
+
+      const user = await User.findById(userId)
+        .select('name email role restaurantId phone location isActive createdAt updatedAt')
+        .populate('restaurantId', 'name location city status isActive maxTables gstPercentage')
+        .lean();
+
       if (!user) {
         throw new Error('User not found');
       }
       if (!user.isActive) {
         throw new Error('User account is inactive');
       }
-      const result = user.toObject();
-      result.role = formatRoleForClient(result.role);
-      return result;
+
+      user.id = user._id ? user._id.toString() : userId.toString();
+      user.role = formatRoleForClient(user.role);
+
+      userAuthCache.set(cacheKey, user);
+      return { ...user };
     } catch (error) {
       logger.error(`Get user error: ${error.message}`);
       throw error;

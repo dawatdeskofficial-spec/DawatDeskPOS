@@ -65,9 +65,15 @@ class WaitingQueueController {
         query.status = { $in: ['WAITING', 'CALLED', 'SEATED'] };
       }
 
-      const queue = await WaitingQueue.find(query)
+      const rawQueue = await WaitingQueue.find(query)
         .populate('createdBy', 'name role')
-        .sort({ createdAt: 1 });
+        .sort({ createdAt: 1 })
+        .lean();
+
+      const queue = rawQueue.map((q) => ({
+        ...q,
+        id: q._id ? q._id.toString() : q.id,
+      }));
 
       return sendSuccess(res, 'Waiting queue fetched successfully', queue);
     } catch (error) {

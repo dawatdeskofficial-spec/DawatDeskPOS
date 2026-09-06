@@ -37,73 +37,82 @@ async function loadNetworkData(silent = false) {
   else syncing.value = true
 
   try {
-    const [restRes, usersRes] = await Promise.all([
+    const [restRes, usersRes, ordersRes, paymentsRes] = await Promise.all([
       getRestaurants(),
-      getAllUsers(1, 1000)
+      getAllUsers(1, 1000),
+      getOrders('all', 1, 500).catch(() => ({ data: [] })),
+      getPayments('all', 1, 500).catch(() => ({ data: [] })),
     ])
 
     allUsers.value = usersRes.data || []
     const rawRestaurants = restRes.data || []
+    const rawOrders: any[] = ordersRes.data || []
+    const rawPayments: any[] = paymentsRes.data || []
 
-    const ordersAcc: any[] = []
-    const paymentsAcc: any[] = []
+    const getRId = (val: any) => {
+      if (!val) return ''
+      if (typeof val === 'string') return val
+      return (val._id || val.id || '').toString()
+    }
 
-    const hydrated = await Promise.all(
-      rawRestaurants.map(async (r: any) => {
-        const rId = r._id || r.id
-        try {
-          const [ordersRes, paymentsRes] = await Promise.all([
-            getOrders(rId, 1, 500).catch(() => ({ data: [] })),
-            getPayments(rId, 1, 500).catch(() => ({ data: [] }))
-          ])
+    const restaurantById = new Map<string, any>()
+    rawRestaurants.forEach((r: any) => {
+      const id = (r._id || r.id || '').toString()
+      restaurantById.set(id, r)
+    })
 
-          const rOrders = (ordersRes.data || []).map((o: any) => ({
-            ...o,
-            restaurantName: r.name,
-            restaurantLocation: r.location || 'Main Branch',
-            restaurantId: rId,
-          }))
+    const ordersByRestaurant = new Map<string, any[]>()
+    const paymentsByRestaurant = new Map<string, any[]>()
 
-          const rPayments = (paymentsRes.data || []).map((p: any) => ({
-            ...p,
-            restaurantName: r.name,
-            restaurantId: rId,
-          }))
+    const ordersAcc: any[] = rawOrders.map((o: any) => {
+      const rId = getRId(o.restaurantId)
+      const rObj = typeof o.restaurantId === 'object' && o.restaurantId ? o.restaurantId : restaurantById.get(rId)
+      const mapped = {
+        ...o,
+        restaurantName: rObj?.name || 'Restaurant',
+        restaurantLocation: rObj?.location || 'Main Branch',
+        restaurantId: rId,
+      }
+      if (!ordersByRestaurant.has(rId)) ordersByRestaurant.set(rId, [])
+      ordersByRestaurant.get(rId)!.push(mapped)
+      return mapped
+    })
 
-          ordersAcc.push(...rOrders)
-          paymentsAcc.push(...rPayments)
+    const paymentsAcc: any[] = rawPayments.map((p: any) => {
+      const rId = getRId(p.restaurantId)
+      const rObj = typeof p.restaurantId === 'object' && p.restaurantId ? p.restaurantId : restaurantById.get(rId)
+      const mapped = {
+        ...p,
+        restaurantName: rObj?.name || 'Restaurant',
+        restaurantId: rId,
+      }
+      if (!paymentsByRestaurant.has(rId)) paymentsByRestaurant.set(rId, [])
+      paymentsByRestaurant.get(rId)!.push(mapped)
+      return mapped
+    })
 
-          const completedPayments = rPayments.filter((p: any) => p.status === 'COMPLETED')
-          const venueRevenue = completedPayments.reduce((sum: number, p: any) => sum + (Number(p.totalAmount) || 0), 0)
-          const activeOrders = rOrders.filter((o: any) => !['COMPLETED', 'CANCELLED'].includes((o.status || '').toUpperCase()))
+    const hydrated = rawRestaurants.map((r: any) => {
+      const rId = (r._id || r.id || '').toString()
+      const rOrders = ordersByRestaurant.get(rId) || []
+      const rPayments = paymentsByRestaurant.get(rId) || []
+      const completedPayments = rPayments.filter((p: any) => p.status === 'COMPLETED')
+      const venueRevenue = completedPayments.reduce((sum: number, p: any) => sum + (Number(p.totalAmount) || 0), 0)
+      const activeOrders = rOrders.filter((o: any) => !['COMPLETED', 'CANCELLED'].includes((o.status || '').toUpperCase()))
 
-          return {
-            ...r,
-            id: rId,
-            city: r.location || 'Main',
-            ordersCount: rOrders.length,
-            activeOrdersCount: activeOrders.length,
-            revenue: venueRevenue,
-            staffCount: allUsers.value.filter((u: any) => {
-              const uRId = typeof u.restaurantId === 'string' ? u.restaurantId : u.restaurantId?._id || u.restaurantId?.id
-              return uRId === rId
-            }).length,
-            status: r.status?.toLowerCase() || 'active'
-          }
-        } catch {
-          return {
-            ...r,
-            id: rId,
-            city: r.location || 'Main',
-            ordersCount: 0,
-            activeOrdersCount: 0,
-            revenue: 0,
-            staffCount: 0,
-            status: r.status?.toLowerCase() || 'active'
-          }
-        }
-      })
-    )
+      return {
+        ...r,
+        id: rId,
+        city: r.location || 'Main',
+        ordersCount: rOrders.length,
+        activeOrdersCount: activeOrders.length,
+        revenue: venueRevenue,
+        staffCount: allUsers.value.filter((u: any) => {
+          const uRId = typeof u.restaurantId === 'string' ? u.restaurantId : (u.restaurantId?._id || u.restaurantId?.id || '').toString()
+          return uRId === rId
+        }).length,
+        status: r.status?.toLowerCase() || 'active',
+      }
+    })
 
     restaurants.value = hydrated
     allOrders.value = ordersAcc.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())

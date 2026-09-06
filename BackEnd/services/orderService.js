@@ -3,13 +3,14 @@ const OrderItem = require('../models/OrderItem');
 const MenuItem = require('../models/MenuItem');
 const Payment = require('../models/Payment');
 const Restaurant = require('../models/Restaurant');
+const User = require('../models/User');
 const logger = require('../utils/logger');
 const { ORDER_STATUS } = require('../utils/constants');
 const mongoose = require('mongoose');
 
 class OrderService {
   async syncOrderStatusFromItems(orderId) {
-    const items = await OrderItem.find({ orderId });
+    const items = await OrderItem.find({ orderId }).lean();
     if (!items || items.length === 0) return Order.findById(orderId);
 
     const activeItems = items.filter((item) => item.status !== 'CANCELLED');
@@ -57,11 +58,13 @@ class OrderService {
     if (!orders || orders.length === 0) return [];
 
     const orderIds = orders.map((order) => order._id || order.id);
-    const items = await OrderItem.find({ orderId: { $in: orderIds } });
+    const items = await OrderItem.find({ orderId: { $in: orderIds } }).lean();
 
     // Get all unique menuItemIds
     const menuItemIds = [...new Set(items.map(item => item.menuItemId).filter(Boolean))];
-    const menuItems = await MenuItem.find({ _id: { $in: menuItemIds } });
+    const menuItems = await MenuItem.find({ _id: { $in: menuItemIds } })
+      .select('name price category fulfillmentOwner')
+      .lean();
     const menuItemMap = menuItems.reduce((map, item) => {
       map[item._id.toString()] = item;
       return map;
@@ -95,6 +98,7 @@ class OrderService {
 
     return orders.map((order) => {
       const plainOrder = order.toObject ? order.toObject() : { ...order };
+      plainOrder.id = plainOrder._id ? plainOrder._id.toString() : plainOrder.id;
       return {
         ...plainOrder,
         items: grouped[plainOrder._id?.toString() || plainOrder.id?.toString()] || [],
@@ -209,14 +213,17 @@ class OrderService {
         query.status = status;
       }
 
-      const orders = await Order.find(query)
-        .populate('restaurantId', 'name location city')
-        .populate('createdBy', 'name email role')
-        .sort({ createdAt: -1 })
-        .limit(limit)
-        .skip(skip);
+      const [orders, total] = await Promise.all([
+        Order.find(query)
+          .populate('restaurantId', 'name location city')
+          .populate('createdBy', 'name email role')
+          .sort({ createdAt: -1 })
+          .limit(limit)
+          .skip(skip)
+          .lean(),
+        Order.countDocuments(query),
+      ]);
 
-      const total = await Order.countDocuments(query);
       const ordersWithItems = await this.attachItemsToOrders(orders);
 
       return { orders: ordersWithItems, total, page, limit };
@@ -232,13 +239,16 @@ class OrderService {
       const skip = (page - 1) * limit;
       const query = { restaurantId, tableNumber: parseInt(tableNumber, 10) };
 
-      const orders = await Order.find(query)
-        .populate('createdBy', 'name email role')
-        .sort({ createdAt: -1 })
-        .limit(limit)
-        .skip(skip);
+      const [orders, total] = await Promise.all([
+        Order.find(query)
+          .populate('createdBy', 'name email role')
+          .sort({ createdAt: -1 })
+          .limit(limit)
+          .skip(skip)
+          .lean(),
+        Order.countDocuments(query),
+      ]);
 
-      const total = await Order.countDocuments(query);
       const ordersWithItems = await this.attachItemsToOrders(orders);
 
       return { orders: ordersWithItems, total, page, limit };
@@ -251,7 +261,10 @@ class OrderService {
   // Get order by ID with items
   async getOrderById(orderId) {
     try {
-      const order = await Order.findById(orderId).populate('createdBy');
+      const order = await Order.findById(orderId)
+        .populate('restaurantId', 'name location city maxTables gstPercentage')
+        .populate('createdBy', 'name email role')
+        .lean();
 
       if (!order) {
         throw new Error('Order not found');
@@ -421,7 +434,7 @@ class OrderService {
   // Update order total
   async updateOrderTotal(orderId) {
     try {
-      const orderItems = await OrderItem.find({ orderId, status: { $ne: 'CANCELLED' } });
+      const orderItems = await OrderItem.find({ orderId, status: { $ne: 'CANCELLED' } }).lean();
       const subtotal = orderItems.reduce(
         (sum, item) => sum + (Number(item.price) || 0) * (Number(item.quantity) || 1),
         0

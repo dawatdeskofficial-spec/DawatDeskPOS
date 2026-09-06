@@ -14,8 +14,10 @@ const authenticate = async (req, res, next) => {
     const decoded = authService.verifyToken(token);
 
     const fullUser = await authService.getUserById(decoded.userId);
-    fullUser._id = fullUser.id || fullUser._id;
-    fullUser.userId = fullUser._id;
+    const idStr = fullUser.id ? fullUser.id.toString() : (fullUser._id ? fullUser._id.toString() : decoded.userId.toString());
+    fullUser.id = idStr;
+    fullUser.userId = idStr;
+    fullUser._id = fullUser._id || idStr;
     req.user = fullUser;
 
     next();

@@ -79,14 +79,15 @@ class MenuService {
         query.$or = categoryQuery;
       }
 
-      const menuItems = await MenuItem.find(query)
-        .populate('categoryId', 'name description icon displayOrder isActive')
-        .sort({ createdAt: -1 })
-        .limit(limit)
-        .skip(skip)
-        .lean();
-
-      const total = await MenuItem.countDocuments(query);
+      const [menuItems, total] = await Promise.all([
+        MenuItem.find(query)
+          .populate('categoryId', 'name description icon displayOrder isActive')
+          .sort({ createdAt: -1 })
+          .limit(limit)
+          .skip(skip)
+          .lean(),
+        MenuItem.countDocuments(query),
+      ]);
 
       return { menuItems, total, page, limit };
     } catch (error) {
@@ -98,7 +99,9 @@ class MenuService {
   // Get menu item by ID
   async getMenuItemById(menuItemId) {
     try {
-      const menuItem = await MenuItem.findById(menuItemId);
+      const menuItem = await MenuItem.findById(menuItemId)
+        .populate('categoryId', 'name description icon displayOrder isActive')
+        .lean();
       if (!menuItem) {
         throw new Error('Menu item not found');
       }
@@ -171,7 +174,9 @@ class MenuService {
           { categoryId: category },
         ],
         isAvailable: true,
-      }).populate('categoryId', 'name description icon displayOrder isActive');
+      })
+        .populate('categoryId', 'name description icon displayOrder isActive')
+        .lean();
 
       return menuItems;
     } catch (error) {

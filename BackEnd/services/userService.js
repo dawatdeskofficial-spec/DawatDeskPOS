@@ -1,4 +1,5 @@
 const User = require('../models/User');
+const Restaurant = require('../models/Restaurant');
 const logger = require('../utils/logger');
 const { normalizeRole } = require('../utils/constants');
 
@@ -30,12 +31,19 @@ class UserService {
       const skip = (page - 1) * limit;
       const query = { ...filters };
 
-      const users = await User.find(query)
-        .populate('restaurantId')
-        .limit(limit)
-        .skip(skip);
+      const [rawUsers, total] = await Promise.all([
+        User.find(query)
+          .populate('restaurantId', 'name location city status isActive')
+          .limit(limit)
+          .skip(skip)
+          .lean(),
+        User.countDocuments(query),
+      ]);
 
-      const total = await User.countDocuments(query);
+      const users = rawUsers.map((u) => ({
+        ...u,
+        id: u._id ? u._id.toString() : u.id,
+      }));
 
       return { users, total, page, limit };
     } catch (error) {
@@ -48,11 +56,18 @@ class UserService {
   async getUsersByRestaurant(restaurantId, page = 1, limit = 20) {
     try {
       const skip = (page - 1) * limit;
-      const users = await User.find({ restaurantId })
-        .limit(limit)
-        .skip(skip);
+      const [rawUsers, total] = await Promise.all([
+        User.find({ restaurantId })
+          .limit(limit)
+          .skip(skip)
+          .lean(),
+        User.countDocuments({ restaurantId }),
+      ]);
 
-      const total = await User.countDocuments({ restaurantId });
+      const users = rawUsers.map((u) => ({
+        ...u,
+        id: u._id ? u._id.toString() : u.id,
+      }));
 
       return { users, total, page, limit };
     } catch (error) {
@@ -64,12 +79,15 @@ class UserService {
   // Get user by ID
   async getUserById(userId) {
     try {
-      const user = await User.findById(userId).populate('restaurantId');
+      const user = await User.findById(userId)
+        .populate('restaurantId', 'name location city status isActive')
+        .lean();
 
       if (!user) {
         throw new Error('User not found');
       }
 
+      user.id = user._id ? user._id.toString() : user.id;
       return user;
     } catch (error) {
       logger.error(`Get user error: ${error.message}`);
@@ -105,6 +123,10 @@ class UserService {
         throw new Error('User not found');
       }
 
+      // Invalidate user auth cache
+      const authService = require('./authService');
+      authService.invalidateUserCache(userId);
+
       logger.info(`User updated: ${userId}`);
       return user;
     } catch (error) {
@@ -125,6 +147,10 @@ class UserService {
       if (!user) {
         throw new Error('User not found');
       }
+
+      // Invalidate user auth cache
+      const authService = require('./authService');
+      authService.invalidateUserCache(userId);
 
       logger.info(`User deactivated: ${userId}`);
       return user;
@@ -147,6 +173,10 @@ class UserService {
         throw new Error('User not found');
       }
 
+      // Invalidate user auth cache
+      const authService = require('./authService');
+      authService.invalidateUserCache(userId);
+
       logger.info(`User activated: ${userId}`);
       return user;
     } catch (error) {
@@ -163,6 +193,10 @@ class UserService {
       if (!user) {
         throw new Error('User not found');
       }
+
+      // Invalidate user auth cache
+      const authService = require('./authService');
+      authService.invalidateUserCache(userId);
 
       logger.info(`User deleted: ${userId}`);
       return user;

@@ -84,5 +84,7 @@ const orderSchema = new mongoose.Schema(
 // Index for faster queries
 orderSchema.index({ restaurantId: 1, status: 1 });
 orderSchema.index({ restaurantId: 1, createdAt: -1 });
+orderSchema.index({ restaurantId: 1, tableNumber: 1, status: 1 });
+orderSchema.index({ restaurantId: 1, orderType: 1, status: 1 });
 
 module.exports = mongoose.model('Order', orderSchema);
