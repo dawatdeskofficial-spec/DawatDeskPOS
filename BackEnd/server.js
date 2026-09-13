@@ -22,15 +22,31 @@ const waitingQueueRoutes = require('./routes/waitingQueueRoutes');
 const app = express();
 
 // Middleware
-app.use(cors({
+const corsOptions = {
   origin: function (origin, callback) {
     // Allow any origin, or requests with no origin (like mobile apps or curl requests)
     callback(null, true);
   },
   credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With']
-}));
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
+  allowedHeaders: [
+    'Content-Type',
+    'Authorization',
+    'X-Requested-With',
+    'Accept',
+    'Origin',
+    'x-client-op-id',
+    'x-idempotency-key',
+    'X-Client-Op-Id',
+    'X-Idempotency-Key',
+    'clientOperationId',
+    'clientoperationid',
+  ],
+  exposedHeaders: ['X-Idempotent-Replay'],
+};
+
+app.use(cors(corsOptions));
+app.options('*', cors(corsOptions));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
