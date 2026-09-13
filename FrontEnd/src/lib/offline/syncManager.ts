@@ -2,8 +2,8 @@ import { ref, computed } from 'vue'
 import { db, type PendingOperation, type OperationStatus } from './db'
 import { networkDetector } from './networkDetector'
 import { toast } from 'vue-sonner'
+import { buildUrl } from '../api'
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:5001'
 const TOKEN_KEY = 'SERVIA_AUTH_TOKEN'
 
 class SyncManager {
@@ -148,8 +148,7 @@ class SyncManager {
 
         try {
           const { endpoint, payload } = await this.resolveTemporaryIds(op.endpoint, op.payload)
-          const base = API_BASE_URL.replace(/\/$/, '')
-          const fullUrl = endpoint.startsWith('http') ? endpoint : `${base}${endpoint.startsWith('/') ? '' : '/'}${endpoint}`
+          const fullUrl = buildUrl(endpoint)
 
           const headers: Record<string, string> = {
             'Content-Type': 'application/json',

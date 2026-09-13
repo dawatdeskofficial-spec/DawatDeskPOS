@@ -1,8 +1,7 @@
 import { ref, computed } from 'vue'
+import { buildUrl } from '../api'
 
 export type NetworkState = 'ONLINE' | 'OFFLINE' | 'SERVER_UNAVAILABLE' | 'SYNCING'
-
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:5001'
 
 class NetworkDetector {
   private _state = ref<NetworkState>(typeof navigator !== 'undefined' && navigator.onLine ? 'ONLINE' : 'OFFLINE')
@@ -84,8 +83,7 @@ class NetworkDetector {
     if (this._isChecking) return this.isOnline.value
     this._isChecking = true
 
-    const base = API_BASE_URL.replace(/\/$/, '')
-    const healthUrl = `${base}/api/health?t=${Date.now()}`
+    const healthUrl = buildUrl(`/api/health?t=${Date.now()}`)
 
     try {
       const controller = new AbortController()

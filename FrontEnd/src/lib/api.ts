@@ -13,7 +13,24 @@ export type BackendUser = {
   isActive?: boolean;
 };
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:5001";
+export const getApiBaseUrl = (): string => {
+  if (typeof window !== "undefined") {
+    const custom = window.localStorage.getItem("API_BASE_URL");
+    if (custom) return custom.replace(/\/$/, "");
+
+    // If loaded over HTTPS on a remote domain and VITE_API_BASE_URL is localhost (mixed content)
+    if (window.location.protocol === "https:" && !window.location.hostname.includes("localhost") && !window.location.hostname.includes("127.0.0.1")) {
+      const envUrl = import.meta.env.VITE_API_BASE_URL;
+      if (envUrl && envUrl.startsWith("https://")) {
+        return envUrl.replace(/\/$/, "");
+      }
+      return ""; // Fallback to relative URL on HTTPS
+    }
+  }
+
+  return (import.meta.env.VITE_API_BASE_URL || "http://localhost:5001").replace(/\/$/, "");
+};
+
 const TOKEN_KEY = "SERVIA_AUTH_TOKEN";
 
 const getStoredToken = () => {
@@ -30,10 +47,11 @@ export const saveToken = (token: string | null) => {
   }
 };
 
-const buildUrl = (path: string) => {
-  if (path.startsWith("http")) return path;
-  const base = API_BASE_URL.replace(/\/$/, "");
+export const buildUrl = (path: string) => {
+  if (path.startsWith("http://") || path.startsWith("https://")) return path;
+  const base = getApiBaseUrl();
   const normalizedPath = path.startsWith("/") ? path : `/${path}`;
+  if (!base) return normalizedPath;
   return `${base}${normalizedPath}`;
 };
 
