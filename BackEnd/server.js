@@ -121,33 +121,28 @@ app.use(errorHandler);
 // Connect to database and start server
 const PORT = process.env.PORT || 5001;
 
+const isServerless = Boolean(process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME || process.env.LAMBDA_TASK_ROOT);
+
 const startServer = async () => {
   try {
     await connectDB();
-
-    // Only start explicit listener if not running on Vercel serverless
-    if (!process.env.VERCEL) {
-      app.listen(PORT, () => {
-        logger.info(`Server started successfully on port ${PORT}`);
-        console.log(`\n🚀 Server is running on http://localhost:${PORT}`);
-        console.log(`📝 API Base URL: http://localhost:${PORT}/api`);
-        console.log(`✅ Health Check: http://localhost:${PORT}/health`);
-      });
-    } else {
-       console.log(`\n🚀 Vercel Serverless API initialized`);
-    }
+    app.listen(PORT, () => {
+      logger.info(`Server started successfully on port ${PORT}`);
+      console.log(`\n🚀 Server is running on http://localhost:${PORT}`);
+      console.log(`📝 API Base URL: http://localhost:${PORT}/api`);
+      console.log(`✅ Health Check: http://localhost:${PORT}/health`);
+    });
   } catch (error) {
     const message = error && error.message ? error.message : String(error);
     console.error(`Server startup failed (DB connection?): ${message}`);
     logger.error(`Server startup failed: ${message}`);
-    // Do not process.exit(1) on serverless environments to prevent "Function Crashed" errors
-    if (!process.env.VERCEL) {
-      process.exit(1);
-    }
+    process.exit(1);
   }
 };
 
-startServer();
+if (!isServerless) {
+  startServer();
+}
 
 // Global crash prevention handlers
 process.on('uncaughtException', (err) => {
