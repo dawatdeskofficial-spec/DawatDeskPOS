@@ -43,14 +43,21 @@ app.use(
   })
 );
 
-// Health check route
-app.get('/health', (req, res) => {
+const idempotencyMiddleware = require('./middlewares/idempotency');
+
+// Health check routes
+const handleHealthCheck = (req, res) => {
   res.json({
     success: true,
+    status: 'ok',
     message: 'Server is running',
-    timestamp: new Date(),
+    timestamp: new Date().toISOString(),
+    version: '1.0.0',
   });
-});
+};
+
+app.get('/health', handleHealthCheck);
+app.get('/api/health', handleHealthCheck);
 
 // Serverless DB Connection Middleware
 app.use(async (req, res, next) => {
@@ -70,6 +77,9 @@ app.use('/api', (req, res, next) => {
   res.set('Expires', '0');
   next();
 });
+
+// Idempotency middleware for mutating requests
+app.use('/api', idempotencyMiddleware);
 
 // API Routes
 app.use('/api/auth', authRoutes);

@@ -12,3 +12,18 @@ app.use(router)
 app.use(VueApexCharts)
 
 app.mount('#app')
+
+// Register Service Worker for offline PWA app shell
+if (typeof window !== 'undefined' && 'serviceWorker' in navigator && (import.meta.env.PROD || import.meta.env.MODE === 'production')) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker
+      .register('/sw.js')
+      .then((reg) => {
+        console.log('[ServiceWorker] Registered successfully with scope:', reg.scope)
+      })
+      .catch((err) => {
+        console.warn('[ServiceWorker] Registration failed:', err)
+      })
+  })
+}
+

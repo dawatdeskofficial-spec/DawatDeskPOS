@@ -38,6 +38,16 @@ const buildUrl = (path: string) => {
 };
 
 import { toast } from "vue-sonner";
+import {
+  isOfflineOrServerError,
+  deriveEntityFromPath,
+  cacheApiResponse,
+  getCachedApiResponse,
+  handleOfflineMutation,
+  mergeWithLocalEntities,
+} from "./offline/offlineApiWrapper";
+import { networkDetector } from "./offline/networkDetector";
+import { generateClientId } from "./offline/db";
 
 const parseResponse = async (response: Response) => {
   const text = await response.text();
@@ -61,10 +71,15 @@ const parseResponse = async (response: Response) => {
 
     const errorMessage = typeof message === "string" ? message : JSON.stringify(message);
 
-    // Show toast notification for API errors
-    toast.error(errorMessage);
+    // Only show toast for normal client errors (400, 401, 403, 404, etc.)
+    if (response.status < 500) {
+      toast.error(errorMessage);
+    }
 
-    throw new Error(errorMessage);
+    const error = new Error(errorMessage) as any;
+    error.status = response.status;
+    error.data = data;
+    throw error;
   }
 
   return data as any;
@@ -79,49 +94,133 @@ export const clearClientCache = () => {
 
 export const fetchJson = async (path: string, init: RequestInit = {}) => {
   const url = buildUrl(path);
+  const method = (init.method || "GET").toUpperCase() as "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
+  const entity = deriveEntityFromPath(path);
+  const clientOpId = generateClientId("req");
+
   const headers = {
     "Content-Type": "application/json",
+    "x-client-op-id": clientOpId,
     ...(init.headers ?? {}),
   } as Record<string, string>;
 
   // Clear cache on mutations explicitly
-  if (init.method && ['POST', 'PUT', 'DELETE', 'PATCH'].includes(init.method.toUpperCase())) {
+  if (["POST", "PUT", "DELETE", "PATCH"].includes(method)) {
     clearClientCache();
   }
 
-  const response = await fetch(url, {
-    ...init,
-    headers,
-  });
+  try {
+    const response = await fetch(url, {
+      ...init,
+      headers,
+    });
 
-  return parseResponse(response);
+    const parsed = await parseResponse(response);
+    networkDetector.reportApiSuccess();
+
+    if (method === "GET") {
+      await cacheApiResponse(path, parsed, entity);
+    }
+
+    return parsed;
+  } catch (error: any) {
+    // Check if network / server is offline
+    if (isOfflineOrServerError(error)) {
+      networkDetector.reportApiFailure(error);
+
+      if (method === "GET") {
+        const cached = await getCachedApiResponse(path);
+        if (cached) {
+          if (Array.isArray(cached.data)) {
+            const merged = await mergeWithLocalEntities(entity, cached.data);
+            return { ...cached, data: merged };
+          }
+          return cached;
+        }
+      } else if (["POST", "PUT", "DELETE", "PATCH"].includes(method) && !path.includes("/auth/")) {
+        let payload = {};
+        try {
+          payload = init.body ? JSON.parse(init.body as string) : {};
+        } catch {
+          payload = {};
+        }
+        return await handleOfflineMutation(path, method, payload, entity);
+      }
+    }
+
+    throw error;
+  }
 };
 
 export const authFetch = async (path: string, init: RequestInit = {}) => {
   const token = getStoredToken();
+  const method = (init.method || "GET").toUpperCase() as "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
+  const entity = deriveEntityFromPath(path);
+  const clientOpId = generateClientId("req");
+
   const headers = {
     "Content-Type": "application/json",
+    "x-client-op-id": clientOpId,
     ...(init.headers ?? {}),
     ...(token ? { Authorization: `Bearer ${token}` } : {}),
   } as Record<string, string>;
 
   // Clear cache on mutations directly
-  if (init.method && ['POST', 'PUT', 'DELETE', 'PATCH'].includes(init.method.toUpperCase())) {
+  if (["POST", "PUT", "DELETE", "PATCH"].includes(method)) {
     clearClientCache();
   }
 
-  const response = await fetch(buildUrl(path), {
-    ...init,
-    headers,
-  });
+  try {
+    const response = await fetch(buildUrl(path), {
+      ...init,
+      headers,
+    });
 
-  return parseResponse(response);
+    const parsed = await parseResponse(response);
+    networkDetector.reportApiSuccess();
+
+    if (method === "GET") {
+      await cacheApiResponse(path, parsed, entity);
+      if (parsed && Array.isArray(parsed.data)) {
+        const merged = await mergeWithLocalEntities(entity, parsed.data);
+        return { ...parsed, data: merged };
+      }
+    }
+
+    return parsed;
+  } catch (error: any) {
+    if (isOfflineOrServerError(error)) {
+      networkDetector.reportApiFailure(error);
+
+      if (method === "GET") {
+        const cached = await getCachedApiResponse(path);
+        if (cached) {
+          if (Array.isArray(cached.data)) {
+            const merged = await mergeWithLocalEntities(entity, cached.data);
+            return { ...cached, data: merged };
+          }
+          return cached;
+        }
+      } else if (["POST", "PUT", "DELETE", "PATCH"].includes(method) && !path.includes("/auth/")) {
+        let payload = {};
+        try {
+          payload = init.body ? JSON.parse(init.body as string) : {};
+        } catch {
+          payload = {};
+        }
+        return await handleOfflineMutation(path, method, payload, entity);
+      }
+    }
+
+    throw error;
+  }
 };
 
 // Caching wrapper standardizing duplicate request prevention and short TTLs
 export const cachedAuthFetch = async (path: string, init: RequestInit = {}, ttlSeconds = 15) => {
   const cacheKey = path;
   const now = Date.now();
+  const entity = deriveEntityFromPath(path);
 
   if (clientCache.has(cacheKey)) {
     const cached = clientCache.get(cacheKey)!;
@@ -133,15 +232,27 @@ export const cachedAuthFetch = async (path: string, init: RequestInit = {}, ttlS
   }
 
   // Deduplicate inflight requests
-  const promise = authFetch(path, init).then((res) => {
-    clientCache.set(cacheKey, { params: res, expiry: Date.now() + (ttlSeconds * 1000) });
-    return res;
-  }).catch(e => {
-    clientCache.delete(cacheKey);
-    throw e;
-  });
+  const promise = authFetch(path, init)
+    .then(async (res) => {
+      clientCache.set(cacheKey, { params: res, expiry: Date.now() + ttlSeconds * 1000 });
+      return res;
+    })
+    .catch(async (e) => {
+      clientCache.delete(cacheKey);
+      if (isOfflineOrServerError(e)) {
+        const cached = await getCachedApiResponse(path);
+        if (cached) {
+          if (Array.isArray(cached.data)) {
+            const merged = await mergeWithLocalEntities(entity, cached.data);
+            return { ...cached, data: merged };
+          }
+          return cached;
+        }
+      }
+      throw e;
+    });
 
-  clientCache.set(cacheKey, { params: null, expiry: now + (ttlSeconds * 1000), promise });
+  clientCache.set(cacheKey, { params: null, expiry: now + ttlSeconds * 1000, promise });
   return promise;
 };
 

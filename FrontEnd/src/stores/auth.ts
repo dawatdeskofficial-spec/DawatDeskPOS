@@ -52,14 +52,39 @@ export const ROLE_HOMES: Record<AppRole, string> = {
   cashier: "/cashier",
 };
 
+const CACHED_USER_KEY = "SERVIA_CACHED_USER";
+
+function getCachedUser(): BackendUser | null {
+  if (typeof window === "undefined") return null;
+  const raw = window.localStorage.getItem(CACHED_USER_KEY);
+  if (!raw) return null;
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
+}
+
+function saveCachedUser(userData: BackendUser | null) {
+  if (typeof window === "undefined") return;
+  if (userData) {
+    window.localStorage.setItem(CACHED_USER_KEY, JSON.stringify(userData));
+  } else {
+    window.localStorage.removeItem(CACHED_USER_KEY);
+  }
+}
+
 export const useAuthStore = defineStore('auth', () => {
-  const user = ref<BackendUser | null>(null);
-  const role = ref<AppRole | null>(null);
+  const user = ref<BackendUser | null>(getCachedUser());
+  const role = ref<AppRole | null>(parseRole(user.value?.role));
   const loading = ref(true);
 
   async function initAuth() {
     const token = typeof window !== "undefined" ? window.localStorage.getItem(TOKEN_STORAGE_KEY) : null;
     if (!token) {
+      saveCachedUser(null);
+      user.value = null;
+      role.value = null;
       loading.value = false;
       return;
     }
@@ -69,12 +94,22 @@ export const useAuthStore = defineStore('auth', () => {
       const userData = response.data as BackendUser;
       user.value = userData;
       role.value = parseRole(userData.role);
+      saveCachedUser(userData);
       prefetchDashboardData(userData);
-    } catch (error) {
-      console.error("Failed to refresh user:", error);
-      saveToken(null);
-      user.value = null;
-      role.value = null;
+    } catch (error: any) {
+      console.warn("Failed to refresh user online:", error?.message || error);
+      // If offline or server error, retain cached user session!
+      const cached = getCachedUser();
+      if (cached) {
+        user.value = cached;
+        role.value = parseRole(cached.role);
+      } else if (error?.status === 401) {
+        // Only clear token if server explicitly rejected token (401)
+        saveToken(null);
+        saveCachedUser(null);
+        user.value = null;
+        role.value = null;
+      }
     } finally {
       loading.value = false;
     }
@@ -84,6 +119,7 @@ export const useAuthStore = defineStore('auth', () => {
     const response = await loginUser(email, password);
     const payload = response.data as { user: BackendUser; token: string };
     saveToken(payload.token);
+    saveCachedUser(payload.user);
     user.value = payload.user;
     role.value = parseRole(payload.user.role);
     prefetchDashboardData(payload.user);
@@ -93,12 +129,14 @@ export const useAuthStore = defineStore('auth', () => {
     const response = await signupUser(name, email, password, r);
     const payload = response.data as { user: BackendUser; token: string };
     saveToken(payload.token);
+    saveCachedUser(payload.user);
     user.value = payload.user;
     role.value = parseRole(payload.user.role);
   }
 
   async function signOut() {
     saveToken(null);
+    saveCachedUser(null);
     user.value = null;
     role.value = null;
   }
@@ -109,11 +147,19 @@ export const useAuthStore = defineStore('auth', () => {
       const userData = response.data as BackendUser;
       user.value = userData;
       role.value = parseRole(userData.role);
-    } catch (error) {
-      console.error("Refresh user failed:", error);
-      saveToken(null);
-      user.value = null;
-      role.value = null;
+      saveCachedUser(userData);
+    } catch (error: any) {
+      console.warn("Refresh user failed:", error?.message || error);
+      const cached = getCachedUser();
+      if (cached) {
+        user.value = cached;
+        role.value = parseRole(cached.role);
+      } else if (error?.status === 401) {
+        saveToken(null);
+        saveCachedUser(null);
+        user.value = null;
+        role.value = null;
+      }
     }
   }
 

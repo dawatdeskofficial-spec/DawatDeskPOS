@@ -17,6 +17,7 @@ import Button from '@/components/ui/Button.vue'
 import Badge from '@/components/ui/Badge.vue'
 import { toast } from 'vue-sonner'
 import LanguageSwitcher from '@/components/LanguageSwitcher.vue'
+import NetworkStatusIndicator from '@/components/NetworkStatusIndicator.vue'
 import AlertDialog from '@/components/ui/AlertDialog.vue'
 import AlertDialogContent from '@/components/ui/AlertDialogContent.vue'
 import AlertDialogHeader from '@/components/ui/AlertDialogHeader.vue'
@@ -454,7 +455,9 @@ function formatTime(ts: string) {
           </template>
         </div>
 
-        <div class="flex items-center gap-1 sm:gap-2 shrink-0">
+        <div class="flex items-center gap-1.5 sm:gap-2 shrink-0">
+          <NetworkStatusIndicator />
+
           <div class="hidden sm:block">
             <LanguageSwitcher />
           </div>
