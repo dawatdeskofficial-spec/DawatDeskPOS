@@ -14,7 +14,7 @@ app.use(VueApexCharts)
 app.mount('#app')
 
 // Register Service Worker for offline PWA app shell
-if (typeof window !== 'undefined' && 'serviceWorker' in navigator && (import.meta.env.PROD || import.meta.env.MODE === 'production')) {
+if (typeof window !== 'undefined' && 'serviceWorker' in navigator) {
   window.addEventListener('load', () => {
     navigator.serviceWorker
       .register('/sw.js')
