@@ -29,20 +29,7 @@ const corsOptions = {
   },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
-  allowedHeaders: [
-    'Content-Type',
-    'Authorization',
-    'X-Requested-With',
-    'Accept',
-    'Origin',
-    'x-client-op-id',
-    'x-idempotency-key',
-    'X-Client-Op-Id',
-    'X-Idempotency-Key',
-    'clientOperationId',
-    'clientoperationid',
-  ],
-  exposedHeaders: ['X-Idempotent-Replay'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'Origin'],
 };
 
 app.use(cors(corsOptions));
@@ -58,7 +45,6 @@ app.use(
   })
 );
 
-const idempotencyMiddleware = require('./middlewares/idempotency');
 
 // Health check routes
 const handleHealthCheck = (req, res) => {
@@ -93,8 +79,6 @@ app.use('/api', (req, res, next) => {
   next();
 });
 
-// Idempotency middleware for mutating requests
-app.use('/api', idempotencyMiddleware);
 
 // API Routes
 app.use('/api/auth', authRoutes);
