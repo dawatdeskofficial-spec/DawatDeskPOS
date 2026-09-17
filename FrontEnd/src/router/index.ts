@@ -1,5 +1,5 @@
 import { createRouter, createWebHistory } from 'vue-router'
-import { useAuthStore } from '@/stores/auth'
+import { useAuthStore, parseRole } from '@/stores/auth'
 
 const routes = [
   { path: '/', redirect: '/login' },
@@ -33,29 +33,53 @@ const router = createRouter({
 router.beforeEach(async (to, from, next) => {
   const auth = useAuthStore()
   if (auth.loading) {
-    await auth.initAuth()
-  }
-  
-  if (to.path !== '/login' && !auth.user) {
-    next('/login')
-  } else if (to.path === '/login' && auth.user) {
-    let redirectPath = '/'
-    const role = auth.role?.toLowerCase()
-    if (role === 'main_admin') redirectPath = '/admin/dashboard'
-    else if (role === 'restaurant_admin') redirectPath = '/restaurant/dashboard'
-    else if (role) redirectPath = `/${role.split('_')[0]}`
-    next(redirectPath)
-  } else {
-    // Check if venue is deactivated for non-main-admin users
-    if (auth.user && auth.role !== 'main_admin' && to.path !== '/service-unavailable' && to.path !== '/login' && to.path !== '/profile') {
-      const restObj = typeof auth.user.restaurantId === 'object' ? auth.user.restaurantId as any : null
-      if (restObj && (restObj.status === 'INACTIVE' || restObj.status === 'CLOSED' || restObj.isActive === false)) {
-        next('/service-unavailable')
-        return
-      }
+    try {
+      await auth.initAuth()
+    } catch {
+      auth.loading = false
     }
-    next()
   }
+
+  const role = auth.role || (auth.user?.role ? parseRole(auth.user.role) : null)
+
+  // Compute destination home path for logged-in user
+  let homePath: string | null = null
+  if (role === 'main_admin') homePath = '/admin/dashboard'
+  else if (role === 'restaurant_admin') homePath = '/restaurant/dashboard'
+  else if (role) homePath = `/${role.split('_')[0]}`
+
+  // 1. Authenticated user visiting login: forward to their home dashboard
+  if (to.path === '/login' && auth.user) {
+    if (homePath && homePath !== '/login') {
+      return next(homePath)
+    }
+    // If role cannot be resolved, sign out to prevent infinite loop
+    auth.signOut()
+    return next()
+  }
+
+  // 2. Visiting root path '/'
+  if (to.path === '/') {
+    if (auth.user && homePath && homePath !== '/login') {
+      return next(homePath)
+    }
+    return next('/login')
+  }
+
+  // 3. Unauthenticated user trying to access protected routes
+  if (to.path !== '/login' && to.path !== '/service-unavailable' && !auth.user) {
+    return next('/login')
+  }
+
+  // 4. Venue deactivation check for non-main-admin users
+  if (auth.user && role !== 'main_admin' && to.path !== '/service-unavailable' && to.path !== '/login' && to.path !== '/profile') {
+    const restObj = typeof auth.user.restaurantId === 'object' ? auth.user.restaurantId as any : null
+    if (restObj && (restObj.status === 'INACTIVE' || restObj.status === 'CLOSED' || restObj.isActive === false)) {
+      return next('/service-unavailable')
+    }
+  }
+
+  return next()
 })
 
 export default router

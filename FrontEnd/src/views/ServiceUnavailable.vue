@@ -10,6 +10,7 @@ import {
 import Button from '@/components/ui/Button.vue'
 import Badge from '@/components/ui/Badge.vue'
 import { toast } from 'vue-sonner'
+import DawatDeskLogo from '@/components/DawatDeskLogo.vue'
 
 const auth = useAuthStore()
 const router = useRouter()
@@ -84,6 +85,10 @@ onMounted(() => {
     <div class="absolute bottom-1/4 left-1/3 w-80 h-80 bg-amber-500/10 rounded-full blur-3xl pointer-events-none" />
 
     <div class="max-w-lg w-full rounded-3xl bg-card border border-border shadow-2xl p-6 sm:p-8 text-center relative z-10">
+      <div class="flex justify-center mb-5">
+        <DawatDeskLogo variant="auto" size="md" />
+      </div>
+
       <!-- Animated Status Icon -->
       <div class="relative mx-auto mb-5 w-20 h-20 flex items-center justify-center">
         <div class="absolute inset-0 rounded-full bg-rose-500/15 animate-ping opacity-75" />

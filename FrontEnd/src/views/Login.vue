@@ -5,6 +5,7 @@ import { ChefHat, ClipboardList, Crown, Receipt, Store, Utensils, Monitor, Conci
 import { useAuthStore, ROLE_HOMES, ROLE_LABELS, type AppRole } from '@/stores/auth'
 import Button from '@/components/ui/Button.vue'
 import Input from '@/components/ui/Input.vue'
+import DawatDeskLogo from '@/components/DawatDeskLogo.vue'
 
 const router = useRouter()
 const auth = useAuthStore()
@@ -126,14 +127,8 @@ async function launchKioskDemo() {
         class="absolute inset-0 pointer-events-none"
         style="background: radial-gradient(680px circle at 15% 10%, oklch(0.7 0.18 45 / 0.30), transparent 60%), radial-gradient(520px circle at 90% 95%, oklch(0.58 0.2 28 / 0.28), transparent 60%);"
       />
-      <div class="relative flex items-center gap-3">
-        <div class="h-12 w-12 rounded-[14px] overflow-hidden shadow-glow shrink-0 border border-white/20 bg-white">
-          <img src="/dawatdesk_logo.png" alt="DawatDesk Logo" class="h-full w-full object-cover hover:scale-105 transition-transform duration-300" />
-        </div>
-        <div>
-          <div class="font-brand text-3xl font-bold tracking-tight text-white">DawatDesk</div>
-          <div class="text-[11px] uppercase tracking-[0.22em] text-white/60">Kitchen &amp; Table</div>
-        </div>
+      <div class="relative flex items-center">
+        <DawatDeskLogo variant="dark" size="lg" />
       </div>
       <div class="relative space-y-7 text-white">
         <div class="inline-flex items-center gap-2 px-3 py-1.5 rounded-full border border-white/15 bg-white/5 text-xs text-white/80 backdrop-blur">
@@ -171,11 +166,8 @@ async function launchKioskDemo() {
     <!-- Form side -->
     <div class="flex items-center justify-center p-6 lg:p-12">
       <div class="w-full max-w-md space-y-8 animate-fade-in">
-        <div class="lg:hidden flex items-center gap-2">
-          <div class="h-10 w-10 rounded-xl overflow-hidden border border-border/80 shadow-sm shrink-0 bg-white">
-            <img src="/dawatdesk_logo.png" alt="DawatDesk Logo" class="h-full w-full object-cover hover:scale-105 transition-transform duration-300" />
-          </div>
-          <span class="font-brand text-3xl font-bold">DawatDesk</span>
+        <div class="flex items-center justify-center lg:justify-start mb-2">
+          <DawatDeskLogo variant="auto" size="lg" />
         </div>
 
         <div v-if="forgot" class="space-y-6">

@@ -13,7 +13,8 @@ export type AppRole = "main_admin" | "restaurant_admin" | "waiter" | "chef" | "c
 
 const APP_ROLES = ["main_admin", "restaurant_admin", "waiter", "chef", "cashier"] as const;
 export function isAppRole(value: unknown): value is AppRole {
-  return typeof value === "string" && APP_ROLES.includes(value as AppRole);
+  if (typeof value !== "string") return false;
+  return APP_ROLES.includes(value.trim().toLowerCase() as AppRole);
 }
 
 export type BackendUser = {
@@ -31,8 +32,10 @@ export type BackendUser = {
 
 const TOKEN_STORAGE_KEY = "SERVIA_AUTH_TOKEN";
 
-function parseRole(value: unknown): AppRole | null {
-  if (isAppRole(value)) return value;
+export function parseRole(value: unknown): AppRole | null {
+  if (typeof value !== "string") return null;
+  const lower = value.trim().toLowerCase() as AppRole;
+  if (APP_ROLES.includes(lower)) return lower;
   return null;
 }
 
@@ -65,11 +68,18 @@ export const useAuthStore = defineStore('auth', () => {
     }
 
     try {
-      const response = await getCurrentUser();
+      const timeoutPromise = new Promise((_, reject) => 
+        setTimeout(() => reject(new Error("Auth verification timeout")), 3000)
+      );
+      const response = await Promise.race([getCurrentUser(), timeoutPromise]) as any;
       const userData = response.data as BackendUser;
-      user.value = userData;
-      role.value = parseRole(userData.role);
-      prefetchDashboardData(userData);
+      if (userData) {
+        const normalizedRole = parseRole(userData.role) || "restaurant_admin";
+        userData.role = normalizedRole;
+        user.value = userData;
+        role.value = normalizedRole;
+        prefetchDashboardData(userData);
+      }
     } catch (error) {
       console.error("Failed to refresh user:", error);
       saveToken(null);
@@ -84,17 +94,25 @@ export const useAuthStore = defineStore('auth', () => {
     const response = await loginUser(email, password);
     const payload = response.data as { user: BackendUser; token: string };
     saveToken(payload.token);
-    user.value = payload.user;
-    role.value = parseRole(payload.user.role);
-    prefetchDashboardData(payload.user);
+    if (payload.user) {
+      const normalizedRole = parseRole(payload.user.role) || "restaurant_admin";
+      payload.user.role = normalizedRole;
+      user.value = payload.user;
+      role.value = normalizedRole;
+      prefetchDashboardData(payload.user);
+    }
   }
 
   async function signUp(name: string, email: string, password: string, r: AppRole) {
     const response = await signupUser(name, email, password, r);
     const payload = response.data as { user: BackendUser; token: string };
     saveToken(payload.token);
-    user.value = payload.user;
-    role.value = parseRole(payload.user.role);
+    if (payload.user) {
+      const normalizedRole = parseRole(payload.user.role) || "restaurant_admin";
+      payload.user.role = normalizedRole;
+      user.value = payload.user;
+      role.value = normalizedRole;
+    }
   }
 
   async function signOut() {
@@ -107,8 +125,12 @@ export const useAuthStore = defineStore('auth', () => {
     try {
       const response = await getCurrentUser();
       const userData = response.data as BackendUser;
-      user.value = userData;
-      role.value = parseRole(userData.role);
+      if (userData) {
+        const normalizedRole = parseRole(userData.role) || "restaurant_admin";
+        userData.role = normalizedRole;
+        user.value = userData;
+        role.value = normalizedRole;
+      }
     } catch (error) {
       console.error("Refresh user failed:", error);
       saveToken(null);
@@ -143,8 +165,12 @@ export const useAuthStore = defineStore('auth', () => {
     if (!user.value) throw new Error("No authenticated user");
     const response = await updateUserApi(user.value.id, data);
     const updatedUser = response.data as BackendUser;
-    user.value = updatedUser;
-    role.value = parseRole(updatedUser.role);
+    if (updatedUser) {
+      const normalizedRole = parseRole(updatedUser.role) || "restaurant_admin";
+      updatedUser.role = normalizedRole;
+      user.value = updatedUser;
+      role.value = normalizedRole;
+    }
   }
 
   return {

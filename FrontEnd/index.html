@@ -7,17 +7,47 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>DawatDesk POS</title>
 
+  <!-- Immediate purge of legacy service workers and stale browser caches -->
+  <script>
+    (function() {
+      if (typeof window !== 'undefined' && 'serviceWorker' in navigator) {
+        navigator.serviceWorker.getRegistrations().then(function(regs) {
+          for (var i = 0; i < regs.length; i++) {
+            regs[i].unregister();
+          }
+          if ('caches' in window) {
+            caches.keys().then(function(keys) {
+              for (var j = 0; j < keys.length; j++) {
+                caches.delete(keys[j]);
+              }
+            });
+          }
+          if (navigator.serviceWorker.controller && !sessionStorage.getItem('dd_sw_cleared')) {
+            sessionStorage.setItem('dd_sw_cleared', '1');
+            window.location.reload();
+          }
+        }).catch(function() {});
+      }
+    })();
+  </script>
+
   <!-- Intelligent Hidden DOM Translation (English, Gujarati, Hindi) -->
   <script type="text/javascript">
     function googleTranslateElementInit() {
-      new google.translate.TranslateElement({
-        pageLanguage: 'en',
-        includedLanguages: 'en,gu,hi',
-        autoDisplay: false
-      }, 'google_translate_element');
+      try {
+        if (window.google && window.google.translate) {
+          new google.translate.TranslateElement({
+            pageLanguage: 'en',
+            includedLanguages: 'en,gu,hi',
+            autoDisplay: false
+          }, 'google_translate_element');
+        }
+      } catch (e) {
+        console.warn('Google Translate init bypassed:', e);
+      }
     }
   </script>
-  <script type="text/javascript"
+  <script type="text/javascript" async defer
     src="https://translate.google.com/translate_a/element.js?cb=googleTranslateElementInit"></script>
 
   <style>

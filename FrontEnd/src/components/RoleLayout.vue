@@ -3,6 +3,7 @@ import { ref, onMounted, onUnmounted, computed, watch } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useAuthStore, ROLE_LABELS, ROLE_HOMES, type AppRole } from '@/stores/auth'
 import { getRestaurantById, getOrders, updateOrderStatus } from '@/lib/api'
+import { consolidateOrderItems } from '@/lib/utils'
 import {
   Bell, BellRing, ChevronDown, LogOut, Menu, Moon, Sun, Globe,
   User as UserIcon, UtensilsCrossed, X, CheckCircle2, Clock, ConciergeBell
@@ -26,6 +27,12 @@ import AlertDialogFooter from '@/components/ui/AlertDialogFooter.vue'
 import AlertDialogCancel from '@/components/ui/AlertDialogCancel.vue'
 import AlertDialogAction from '@/components/ui/AlertDialogAction.vue'
 
+import OfflineBanner from '@/components/mobile/OfflineBanner.vue'
+import AppHeader from '@/components/mobile/AppHeader.vue'
+import BottomNavigation from '@/components/mobile/BottomNavigation.vue'
+import SideDrawer from '@/components/mobile/SideDrawer.vue'
+import DawatDeskLogo from '@/components/DawatDeskLogo.vue'
+
 import { restaurantNav, adminNav } from '@/lib/nav'
 
 interface NavItem {
@@ -38,9 +45,14 @@ const props = withDefaults(defineProps<{
   role: AppRole
   nav: NavItem[]
   brand?: string
+  activeTab?: string
 }>(), {
   brand: 'DawatDesk'
 })
+
+const emit = defineEmits<{
+  (e: 'tabChange', tab: string): void
+}>()
 
 const auth = useAuthStore()
 const router = useRouter()
@@ -188,16 +200,14 @@ onMounted(() => {
     notifInterval = setInterval(pollReadyOrders, 4000)
   }
 
-  // Push a dummy history entry so the back button can be intercepted
-  if (props.role !== 'waiter') {
-    history.pushState({ navMenu: true }, '')
-    window.addEventListener('popstate', handlePopState)
-  }
+  // Close drawer on navigation
+  watch(() => route.path, () => {
+    open.value = false
+  })
 })
 
 onUnmounted(() => {
   clearInterval(notifInterval)
-  window.removeEventListener('popstate', handlePopState)
 })
 
 watch(dark, (newDark) => {
@@ -230,14 +240,7 @@ watch(isWaiter, (val) => {
   }
 })
 
-// ── Back button: open mobile nav menu instead of leaving ────────────────────
-function handlePopState() {
-  if (props.role !== 'waiter') {
-    open.value = true
-    // Re-push the dummy state so the back button can be caught again next time
-    history.pushState({ navMenu: true }, '')
-  }
-}
+
 
 function handleLogout() {
   open.value = false // close mobile navigation if open
@@ -285,14 +288,8 @@ function formatTime(ts: string) {
       class="hidden lg:flex w-64 bg-sidebar text-sidebar-foreground border-r border-sidebar-border flex-col shrink-0"
     >
       <div class="h-16 flex items-center justify-between px-5 border-b border-sidebar-border">
-        <router-link to="/" class="flex items-center gap-2.5">
-          <div class="h-9 w-9 rounded-[10px] overflow-hidden border border-sidebar-border shadow-sm shrink-0 bg-white">
-            <img src="/dawatdesk_logo.png" alt="DawatDesk Logo" class="h-full w-full object-cover hover:scale-105 transition-transform duration-300" />
-          </div>
-          <div class="leading-tight">
-            <div class="font-brand text-[22px] font-bold tracking-tight">{{ displayBrand }}</div>
-            <div class="text-[10px] uppercase tracking-[0.18em] text-sidebar-foreground/60">Kitchen &amp; Table</div>
-          </div>
+        <router-link to="/" class="flex items-center">
+          <DawatDeskLogo variant="auto" size="md" />
         </router-link>
       </div>
 
@@ -343,115 +340,53 @@ function formatTime(ts: string) {
       </div>
     </aside>
 
-    <!-- ── Mobile Full-Screen Navigation Menu Modal (App Experience) ──────── -->
-    <Teleport to="body">
-      <Transition name="fade">
-        <div
-          v-if="open && role !== 'waiter'"
-          class="lg:hidden fixed inset-0 z-50 bg-background flex flex-col"
-        >
-          <!-- Mobile Header -->
-          <div class="h-16 flex items-center justify-between px-5 border-b border-border bg-card/90 shrink-0">
-            <div class="flex items-center gap-2.5">
-              <div class="h-9 w-9 rounded-[10px] overflow-hidden border border-border/70 shadow-sm shrink-0 bg-white">
-                <img src="/dawatdesk_logo.png" alt="DawatDesk Logo" class="h-full w-full object-cover hover:scale-105 transition-transform duration-300" />
-              </div>
-              <div class="leading-tight">
-                <div class="font-brand text-[20px] font-bold">{{ displayBrand }}</div>
-                <div class="text-[10px] uppercase font-bold text-muted-foreground">{{ effectiveRoleLabel }}</div>
-              </div>
-            </div>
-            <button
-              @click="open = false"
-              class="h-9 w-9 rounded-xl border border-border bg-muted/40 hover:bg-muted flex items-center justify-center text-foreground cursor-pointer"
-            >
-              <X class="h-5 w-5" />
-            </button>
-          </div>
-
-          <!-- Navigation Links Grid -->
-          <div class="flex-1 overflow-y-auto p-4 space-y-2">
-            <button
-              v-for="item in effectiveNav"
-              :key="item.to"
-              @click="router.push(item.to); open = false"
-              :class="[
-                'w-full flex items-center justify-between p-3.5 rounded-2xl border text-left transition cursor-pointer',
-                (route.path === item.to || (item.to !== '/' && route.path.startsWith(item.to)))
-                  ? 'border-primary bg-primary/10 text-primary font-bold shadow-xs'
-                  : 'border-border bg-card text-foreground font-semibold hover:bg-muted/30'
-              ]"
-            >
-              <div class="flex items-center gap-3.5">
-                <div :class="['h-10 w-10 rounded-xl flex items-center justify-center shrink-0', (route.path === item.to || (item.to !== '/' && route.path.startsWith(item.to))) ? 'bg-primary text-primary-foreground' : 'bg-muted/70 text-muted-foreground']">
-                  <component :is="item.icon" class="h-5 w-5" />
-                </div>
-                <span class="text-sm font-display">{{ item.label }}</span>
-              </div>
-              <ChevronDown class="h-4 w-4 text-muted-foreground -rotate-90" />
-            </button>
-          </div>
-
-          <!-- User Profile & Logout at Bottom -->
-          <div class="p-4 border-t border-border bg-card shrink-0 flex items-center justify-between">
-            <div class="flex items-center gap-3 min-w-0 flex-1">
-              <div class="h-10 w-10 rounded-full gradient-primary grid place-items-center font-bold text-primary-foreground text-sm shrink-0">
-                {{ auth.user.name[0] }}
-              </div>
-              <div class="min-w-0 flex-1">
-                <div class="text-sm font-bold truncate text-foreground">{{ auth.user.name }}</div>
-                <div class="text-xs text-muted-foreground truncate">{{ auth.user.email }}</div>
-              </div>
-            </div>
-            <button
-              @click="handleLogout"
-              class="px-3.5 py-2 rounded-xl bg-destructive/10 text-destructive hover:bg-destructive/20 font-bold text-xs flex items-center gap-1.5 cursor-pointer ml-2"
-            >
-              <LogOut class="h-4 w-4" />
-              <span>Logout</span>
-            </button>
-          </div>
-        </div>
-      </Transition>
-    </Teleport>
+    <!-- Mobile Side Drawer (Production Mobile Experience) -->
+    <SideDrawer
+      :open="open"
+      :brand="displayBrand"
+      :role="role"
+      :role-label="effectiveRoleLabel"
+      :user="auth.user"
+      :dark="dark"
+      :is-inspecting="isInspecting"
+      @close="open = false"
+      @toggle-dark="dark = !dark"
+      @logout="handleLogout"
+    />
 
     <!-- Main -->
     <div class="flex-1 flex flex-col min-w-0">
-      <header class="h-16 border-b border-border flex items-center justify-between gap-2 px-4 lg:px-6 bg-card/80 backdrop-blur-md sticky top-0 z-50">
+      <!-- Mobile App Header (Visible on screens < lg) -->
+      <div class="lg:hidden">
+        <AppHeader
+          :brand="displayBrand"
+          :role="role"
+          :role-label="effectiveRoleLabel"
+          :user="auth.user"
+          :ready-count="readyOrders.length"
+          :has-new-notif="hasNewNotif"
+          :is-inspecting="isInspecting"
+          @open-drawer="open = true"
+          @open-notif="openNotifPanel"
+          @open-profile="router.push('/profile')"
+          @logout="handleLogout"
+        />
+        <OfflineBanner />
+      </div>
+
+      <!-- Desktop Header (Visible on large screens / desktops) -->
+      <header class="hidden lg:flex h-16 border-b border-border items-center justify-between gap-2 px-6 bg-card/80 backdrop-blur-md sticky top-0 z-50">
         <!-- Left: Brand / Title -->
-        <div class="flex items-center gap-1.5 sm:gap-2.5 min-w-0 flex-1">
-          <!-- Waiter Direct Header Logo -->
-          <div v-if="role === 'waiter'" class="flex items-center gap-2 sm:gap-2.5 min-w-0">
-            <div class="h-8 w-8 sm:h-9 sm:w-9 rounded-[10px] overflow-hidden border border-border/70 shadow-sm shrink-0 bg-white">
-              <img src="/dawatdesk_logo.png" alt="DawatDesk Logo" class="h-full w-full object-cover hover:scale-105 transition-transform duration-300" />
-            </div>
-            <div class="leading-tight min-w-0">
-              <div class="font-brand text-lg sm:text-[20px] font-bold tracking-tight truncate">{{ displayBrand }}</div>
-              <div class="text-[10px] uppercase font-black tracking-widest text-primary flex items-center gap-1">
-                <span>Waiter POS</span>
-                <span class="inline-block w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-              </div>
-            </div>
+        <div class="flex items-center gap-2.5 min-w-0 flex-1">
+          <router-link v-if="role === 'waiter'" to="/" class="flex items-center mr-1 shrink-0">
+            <DawatDeskLogo variant="auto" size="sm" :icon-only="true" />
+          </router-link>
+          <!-- Breadcrumbs (Visible when Sidebar is present) -->
+          <div class="flex items-center gap-2 text-sm font-medium text-muted-foreground ml-2 select-none">
+            <span class="text-foreground/40 font-semibold uppercase tracking-wider text-[11px]">{{ displayBrand }}</span>
+            <span class="text-foreground/20">/</span>
+            <span class="text-foreground font-semibold">{{ breadcrumbs.map(c => c.label).join(' / ') }}</span>
           </div>
-
-          <!-- Non-waiter roles -->
-          <template v-else>
-            <button class="lg:hidden text-foreground flex-shrink-0" @click="open = true">
-              <Menu class="h-5 w-5" />
-            </button>
-            
-            <!-- Mobile/Tablet Brand (Visible when Sidebar is hidden) -->
-            <div class="lg:hidden flex items-center gap-2 min-w-0 ml-0.5">
-              <div class="font-brand text-base sm:text-lg font-bold tracking-tight truncate flex-1">{{ displayBrand }}</div>
-            </div>
-
-            <!-- Breadcrumbs (Visible when Sidebar is present) -->
-            <div class="hidden lg:flex items-center gap-2 text-sm font-medium text-muted-foreground ml-2 select-none">
-              <span class="text-foreground/40 font-semibold uppercase tracking-wider text-[11px]">{{ displayBrand }}</span>
-              <span class="text-foreground/20">/</span>
-              <span class="text-foreground font-semibold">{{ breadcrumbs.map(c => c.label).join(' / ') }}</span>
-            </div>
-          </template>
         </div>
 
         <div class="flex items-center gap-1 sm:gap-2 shrink-0">
@@ -540,7 +475,7 @@ function formatTime(ts: string) {
                       </span>
                     </div>
                     <div class="text-xs text-muted-foreground mb-2.5 line-clamp-2">
-                      {{ (o.items || []).map((it: any) => `${it.qty}× ${it.name}`).join(', ') }}
+                      {{ consolidateOrderItems(o.items).map((it: any) => `${it.qty}× ${it.name}`).join(', ') }}
                     </div>
                     <button
                       @click="serveOrder(o.id || o._id, o.tableNumber)"
@@ -640,22 +575,74 @@ function formatTime(ts: string) {
         </button>
       </div>
 
-      <main class="flex-1 p-4 lg:p-6 animate-fade-in"><slot /></main>
+      <main class="flex-1 p-3.5 sm:p-4 lg:p-6 pb-24 lg:pb-6 animate-fade-in"><slot /></main>
     </div>
+
+    <!-- Mobile Role-Personalized Bottom Navigation Bar -->
+    <BottomNavigation
+      :role="role"
+      :is-inspecting="isInspecting"
+      :active-tab="activeTab"
+      :ready-count="readyOrders.length"
+      @select-tab="$emit('tabChange', $event)"
+      @open-drawer="open = true"
+    />
 
     <!-- Sign-out Confirmation Dialog -->
     <AlertDialog :open="showLogoutConfirm" @update:open="showLogoutConfirm = $event">
-      <AlertDialogContent>
-        <AlertDialogHeader>
-          <AlertDialogTitle>Are you sure you want to sign out?</AlertDialogTitle>
-          <AlertDialogDescription>
-            You will be returned to the login screen and will need to authenticate again to access the dashboard.
-          </AlertDialogDescription>
-        </AlertDialogHeader>
-        <AlertDialogFooter>
-          <AlertDialogCancel @click="showLogoutConfirm = false">No, Cancel</AlertDialogCancel>
-          <AlertDialogAction variant="destructive" @click="executeLogout">
-            Yes, Sign Out
+      <AlertDialogContent class="sm:max-w-md p-6 rounded-3xl border border-border shadow-2xl bg-card overflow-hidden relative">
+        <!-- Top decorative ambient accent bar -->
+        <div class="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-rose-500 via-amber-500 to-rose-500" />
+
+        <div class="flex flex-col items-center text-center pt-2">
+          <!-- Icon Badge -->
+          <div class="h-14 w-14 rounded-2xl bg-rose-500/10 border border-rose-500/20 text-rose-600 dark:text-rose-400 flex items-center justify-center mb-3.5 shadow-xs">
+            <LogOut class="h-7 w-7" />
+          </div>
+
+          <AlertDialogHeader class="space-y-1 text-center sm:text-center">
+            <AlertDialogTitle class="text-lg font-display font-bold text-foreground">
+              Sign Out of DawatDesk?
+            </AlertDialogTitle>
+            <AlertDialogDescription class="text-xs text-muted-foreground leading-relaxed max-w-xs mx-auto">
+              Are you sure you want to end your current session? You will need to log in again to access the platform.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+
+          <!-- Current User Session Card Preview -->
+          <div class="w-full p-3 mt-4 rounded-2xl bg-muted/40 border border-border/70 flex items-center gap-3 text-left">
+            <div class="h-10 w-10 rounded-xl gradient-primary text-primary-foreground flex items-center justify-center font-bold text-sm shrink-0 shadow-xs">
+              {{ (auth.user?.name || auth.user?.username || 'U').charAt(0).toUpperCase() }}
+            </div>
+            <div class="min-w-0 flex-1">
+              <div class="flex items-center justify-between gap-1">
+                <span class="font-bold text-xs text-foreground truncate">
+                  {{ auth.user?.name || auth.user?.username || 'Current User' }}
+                </span>
+                <span class="text-[10px] font-semibold text-emerald-600 dark:text-emerald-400 flex items-center gap-1 shrink-0">
+                  <span class="h-1.5 w-1.5 rounded-full bg-emerald-500" /> Active
+                </span>
+              </div>
+              <div class="text-[11px] text-muted-foreground truncate mt-0.5">
+                {{ effectiveRoleLabel }} · {{ displayBrand }}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <AlertDialogFooter class="gap-2 sm:gap-2 pt-3 flex flex-col-reverse sm:flex-row w-full sm:justify-end">
+          <AlertDialogCancel
+            @click="showLogoutConfirm = false"
+            class="h-9 rounded-xl text-xs font-semibold px-4 cursor-pointer hover:bg-muted"
+          >
+            Cancel
+          </AlertDialogCancel>
+          <AlertDialogAction
+            @click="executeLogout"
+            class="h-9 rounded-xl text-xs font-bold px-4 bg-destructive text-destructive-foreground hover:bg-destructive/90 gap-1.5 cursor-pointer shadow-xs"
+          >
+            <LogOut class="h-3.5 w-3.5" />
+            <span>Yes, Sign Out</span>
           </AlertDialogAction>
         </AlertDialogFooter>
       </AlertDialogContent>

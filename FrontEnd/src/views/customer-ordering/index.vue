@@ -3,6 +3,7 @@ import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore, ROLE_HOMES } from '@/stores/auth'
 import { createOrder, authFetch, fetchJson, getPublicCategoriesByRestaurant, type MenuCategory } from '@/lib/api'
+import { consolidateOrderItems } from '@/lib/utils'
 import { toast } from 'vue-sonner'
 import {
   Utensils,
@@ -892,13 +893,13 @@ function isStepActive(target: string) {
         <div class="space-y-3 pt-2">
           <div class="text-xs font-bold uppercase tracking-wider text-muted-foreground border-b border-border pb-1">Order Details Summary</div>
           <div class="max-h-40 overflow-y-auto space-y-2 pr-1">
-            <div v-for="(it, i) in placedOrder.items" :key="i" class="flex justify-between text-sm">
+            <div v-for="(it, i) in consolidateOrderItems(placedOrder.items)" :key="i" class="flex justify-between text-sm">
               <span>
-                <span class="font-bold text-primary">{{ it.qty || it.quantity || 1 }}×</span> 
+                <span class="font-bold text-primary">{{ it.qty }}×</span> 
                 <span class="font-medium ml-1.5">{{ it.name }}</span>
-                <span v-if="it.note" class="block text-[10px] text-muted-foreground italic ml-6">"{{ it.note }}"</span>
+                <span v-if="it.notes || it.note" class="block text-[10px] text-muted-foreground italic ml-6">"{{ it.notes || it.note }}"</span>
               </span>
-              <span class="tabular-nums font-semibold">₹{{ ((it.price || 0) * (it.qty || it.quantity || 1)).toFixed(0) }}</span>
+              <span class="tabular-nums font-semibold">₹{{ ((it.price || 0) * it.qty).toFixed(0) }}</span>
             </div>
           </div>
           <div class="border-t border-border pt-3 flex justify-between items-center text-sm">

@@ -17,6 +17,7 @@ import {
   seatWaitingCustomer, deleteWaitingQueueEntry,
   type MenuCategory, type WaitingQueueEntry
 } from '@/lib/api'
+import { consolidateOrderItems } from '@/lib/utils'
 import { useAuthStore } from '@/stores/auth'
 import Button from '@/components/ui/Button.vue'
 import Badge from '@/components/ui/Badge.vue'
@@ -762,7 +763,7 @@ function downloadPDF(orderOrPayment: any, isPast = false) {
   const custName   = orderObj.customerName
   const custPhone  = orderObj.customerPhone
   const createdAt  = orderObj.createdAt || paidDate
-  const items      = orderObj.items || []
+  const items      = consolidateOrderItems(orderObj.items || [])
 
   doc.setFontSize(22); doc.text(restName, 14, 20)
   doc.setFontSize(10); doc.setTextColor(100)
@@ -835,10 +836,18 @@ const paymentMethods = [
   { k: 'DIGITAL_WALLET' as const, label: 'UPI/Wallet', icon: Smartphone },
   { k: 'CARD'           as const, label: 'Card',       icon: CreditCard },
 ]
+
+function handleCashierTabChange(tab: string) {
+  if (tab === 'parcel') {
+    parcelDialogOpen.value = true
+  } else if (tab === 'billing' || tab === 'queue' || tab === 'history') {
+    activeTab.value = tab as any
+  }
+}
 </script>
 
 <template>
-  <RoleLayout role="cashier" :nav="cashierNav">
+  <RoleLayout role="cashier" :nav="cashierNav" :active-tab="activeTab" @tab-change="handleCashierTabChange">
     <!-- Header with Quick Action Buttons -->
     <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 sm:gap-4 mb-4 sm:mb-6">
       <div>
@@ -1199,7 +1208,7 @@ const paymentMethods = [
             <!-- Normal Mode Item Row -->
             <template v-else>
               <div
-                v-for="(i, idx) in selectedOrder.items"
+                v-for="(i, idx) in consolidateOrderItems(selectedOrder.items)"
                 :key="idx"
                 class="flex justify-between items-center text-xs py-1.5 px-1 border-b border-border/40 last:border-0"
               >
@@ -1492,7 +1501,7 @@ const paymentMethods = [
 
             <template v-else>
               <div
-                v-for="(i, idx) in selectedOrder.items"
+                v-for="(i, idx) in consolidateOrderItems(selectedOrder.items)"
                 :key="idx"
                 class="flex justify-between items-center text-xs py-2 px-1 border-b border-border/40 last:border-0"
               >

@@ -9,6 +9,7 @@ import RoleLayout from '@/components/RoleLayout.vue'
 import PageHeader from '@/components/PageHeader.vue'
 import { restaurantNav } from '@/lib/nav'
 import { getOrders, getPayments, getRestaurantById } from '@/lib/api'
+import { consolidateOrderItems } from '@/lib/utils'
 import { useAuthStore } from '@/stores/auth'
 import Button from '@/components/ui/Button.vue'
 import Badge from '@/components/ui/Badge.vue'
@@ -334,7 +335,7 @@ function getPaymentMethodLabel(method: string) {
             <!-- Items breakdown -->
             <div class="space-y-3">
               <h4 class="text-sm font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
-                <Utensils class="h-4 w-4" /> Ordered Items ({{ selectedOrder.items?.length || 0 }})
+                <Utensils class="h-4 w-4" /> Ordered Items ({{ consolidateOrderItems(selectedOrder.items).length }})
               </h4>
 
               <div class="border border-border rounded-xl overflow-hidden">
@@ -354,10 +355,10 @@ function getPaymentMethodLabel(method: string) {
                         No items added to this order.
                       </td>
                     </tr>
-                    <tr v-for="item in selectedOrder.items" :key="item.id" class="hover:bg-muted/20 transition">
+                    <tr v-for="(item, idx) in consolidateOrderItems(selectedOrder.items)" :key="item.name + '_' + idx" class="hover:bg-muted/20 transition">
                       <td class="px-4 py-3 font-medium">
                         <div>{{ item.name }}</div>
-                        <div v-if="item.note" class="text-[11px] text-amber-600 font-normal">Note: {{ item.note }}</div>
+                        <div v-if="item.notes || item.note" class="text-[11px] text-amber-600 font-normal">Note: {{ item.notes || item.note }}</div>
                       </td>
                       <td class="px-4 py-3 text-center tabular-nums font-medium">{{ item.qty }}</td>
                       <td class="px-4 py-3 text-right tabular-nums text-muted-foreground">₹{{ item.price.toFixed(0) }}</td>
@@ -371,7 +372,7 @@ function getPaymentMethodLabel(method: string) {
                           item.status === 'CANCELLED' ? 'bg-destructive/10 text-destructive border-destructive/20' :
                           'bg-zinc-500/10 text-zinc-500 border-zinc-500/20'
                         ]">
-                          {{ item.status }}
+                          {{ item.status || 'PENDING' }}
                         </span>
                       </td>
                     </tr>
@@ -380,21 +381,45 @@ function getPaymentMethodLabel(method: string) {
               </div>
             </div>
 
-            <!-- Notes Section -->
-            <div v-if="selectedOrder.notes" class="space-y-1.5">
-              <span class="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground block">Order Notes</span>
-              <p class="text-xs bg-muted/30 border border-border rounded-lg p-3 text-muted-foreground leading-relaxed">
-                {{ selectedOrder.notes }}
-              </p>
+            <!-- Waiter & Customer Info -->
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2">
+              <div class="p-3.5 rounded-xl border border-border bg-muted/20 space-y-1 text-xs">
+                <span class="text-muted-foreground font-semibold uppercase tracking-wider text-[10px]">Server / Waiter</span>
+                <div class="font-bold flex items-center gap-1.5 text-foreground">
+                  <User class="h-3.5 w-3.5 text-primary" /> {{ selectedOrder.createdBy?.name || 'Walk-in / Unassigned' }}
+                </div>
+              </div>
+
+              <div class="p-3.5 rounded-xl border border-border bg-muted/20 space-y-1 text-xs">
+                <span class="text-muted-foreground font-semibold uppercase tracking-wider text-[10px]">Customer / Guest</span>
+                <div class="font-bold flex items-center gap-1.5 text-foreground">
+                  <User class="h-3.5 w-3.5 text-primary" /> {{ selectedOrder.customerName || 'Dine-In Customer' }}
+                  <span v-if="selectedOrder.customerPhone" class="text-muted-foreground text-[11px] font-normal">({{ selectedOrder.customerPhone }})</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- Order Notes if available -->
+            <div v-if="selectedOrder.notes" class="p-3.5 rounded-xl border border-border bg-muted/20 space-y-1 text-xs">
+              <span class="text-muted-foreground font-semibold uppercase tracking-wider text-[10px]">Order Special Note</span>
+              <p class="text-foreground italic">"{{ selectedOrder.notes }}"</p>
             </div>
           </div>
 
-          <!-- Bottom: Financial Details Invoice -->
-          <div class="bg-muted/10 border-t border-border p-6 mt-auto">
-            <div class="max-w-md ml-auto space-y-2 text-sm">
+          <!-- Invoice Summary Bottom Bar -->
+          <div class="p-6 border-t border-border bg-muted/10 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div class="text-xs text-muted-foreground space-y-0.5">
+              <div>Invoice ID: <span class="font-mono font-medium text-foreground">{{ selectedOrder.id || selectedOrder._id }}</span></div>
+              <div v-if="matchedPayment">
+                Payment Method: <span class="font-bold text-foreground">{{ getPaymentMethodLabel(matchedPayment.paymentMethod) }}</span>
+                · Transaction ID: <span class="font-mono text-foreground">{{ matchedPayment.transactionId || 'N/A' }}</span>
+              </div>
+            </div>
+
+            <div class="min-w-[200px] space-y-1.5 text-xs text-right">
               <div class="flex justify-between text-muted-foreground">
                 <span>Subtotal</span>
-                <span class="tabular-nums">₹{{ ((selectedOrder.totalAmount - (selectedOrder.gst || 0)) + (selectedOrder.discount || 0)).toFixed(0) }}</span>
+                <span class="tabular-nums font-medium">₹{{ ((selectedOrder.totalAmount - (selectedOrder.gst || 0)) + (selectedOrder.discount || 0)).toFixed(0) }}</span>
               </div>
 
               <div v-if="selectedOrder.discount > 0" class="flex justify-between text-emerald-500 font-medium">
@@ -407,7 +432,7 @@ function getPaymentMethodLabel(method: string) {
                 <span class="tabular-nums">₹{{ (selectedOrder.gst || 0).toFixed(0) }}</span>
               </div>
 
-              <div class="flex justify-between font-display text-2xl font-bold pt-3 border-t border-border mt-3 text-foreground">
+              <div class="flex justify-between font-display text-xl font-bold pt-2 border-t border-border mt-2 text-foreground">
                 <span>Grand Total</span>
                 <span class="tabular-nums">₹{{ (selectedOrder.totalAmount || 0).toFixed(0) }}</span>
               </div>
@@ -456,16 +481,16 @@ function getPaymentMethodLabel(method: string) {
 
             <!-- Ordered Dishes List -->
             <div class="space-y-2">
-              <h4 class="text-xs font-bold uppercase tracking-wider text-muted-foreground">Dishes ({{ selectedOrder.items?.length || 0 }})</h4>
+              <h4 class="text-xs font-bold uppercase tracking-wider text-muted-foreground">Dishes ({{ consolidateOrderItems(selectedOrder.items).length }})</h4>
               <div class="divide-y divide-border/60 rounded-xl border border-border bg-card overflow-hidden">
                 <div
-                  v-for="it in (selectedOrder.items || [])"
-                  :key="it.id"
+                  v-for="(it, idx) in consolidateOrderItems(selectedOrder.items)"
+                  :key="it.name + '_' + idx"
                   class="p-3 flex items-center justify-between gap-2"
                 >
                   <div class="min-w-0 flex-1">
                     <div class="font-semibold text-xs text-foreground truncate">{{ it.qty }}× {{ it.name }}</div>
-                    <div v-if="it.note" class="text-[10px] text-amber-600">Note: {{ it.note }}</div>
+                    <div v-if="it.notes || it.note" class="text-[10px] text-amber-600">Note: {{ it.notes || it.note }}</div>
                     <div class="text-[10px] text-muted-foreground mt-0.5">₹{{ it.price.toFixed(0) }} each</div>
                   </div>
                   <div class="text-right shrink-0">

@@ -13,6 +13,7 @@ import {
   getOrders, updateOrderStatus, getMenuItems, updateMenuItem,
   getCategoriesByRestaurant, type MenuCategory
 } from '@/lib/api'
+import { consolidateOrderItems } from '@/lib/utils'
 import { useAuthStore } from '@/stores/auth'
 import Button from '@/components/ui/Button.vue'
 import Badge from '@/components/ui/Badge.vue'
@@ -105,13 +106,13 @@ function isItemDone(item: any): boolean {
 async function toggleItemReady(order: any, item: any) {
   if (order.allReady) return
   const orderId = order.id || order._id
-  const itemId = item.id || item._id
+  const itemIds = (item.itemIds && item.itemIds.length > 0) ? item.itemIds : [item.id || item._id]
   const isCurrentlyReady = isItemDone(item)
   const targetStatus = isCurrentlyReady ? 'PREPARING' : 'READY'
   
-  actionLoading.value = `${orderId}_${itemId}`
+  actionLoading.value = `${orderId}_${item.id || item._id}`
   try {
-    await updateOrderStatus(orderId, targetStatus, undefined, [itemId])
+    await updateOrderStatus(orderId, targetStatus, undefined, itemIds)
     if (!isCurrentlyReady) {
       toast.success(`✓ ${item.name} marked Ready!`)
     }
@@ -130,7 +131,7 @@ async function markAllReady(order: any) {
   try {
     const isParcel = order.orderType === 'PARCEL' || Number(order.tableNumber) === 0
     const label = isParcel ? `Parcel (${order.customerName || 'Takeaway'})` : `Table ${order.tableNumber}`
-    const itemIds = (order.kitchenItems || []).map((it: any) => it.id || it._id)
+    const itemIds = (order.kitchenItems || []).flatMap((it: any) => it.itemIds?.length ? it.itemIds : [it.id || it._id])
     await updateOrderStatus(id, 'READY', undefined, itemIds.length > 0 ? itemIds : undefined)
     toast.success(`🔔 ${label} is completely READY! Waiter / Cashier notified.`)
     fetchKitchenData()
@@ -180,8 +181,8 @@ function printTicket(order: any, kitchenItems: any[]) {
   const phone = order.customerPhone ? `<div class="info-row"><span>Phone:</span> <span>${order.customerPhone}</span></div>` : '';
   const waiter = order.createdBy?.name || 'Waiter';
 
-  // Filter to only print "remaining" (uncompleted) items
-  const activeItems = kitchenItems.filter(it => !isItemDone(it));
+  // Filter to only print "remaining" (uncompleted) items, consolidated by dish
+  const activeItems = consolidateOrderItems(kitchenItems.filter(it => !isItemDone(it)));
   if (activeItems.length === 0) {
     toast.info("All items are already cooked! Nothing to print.");
     return;
@@ -429,7 +430,9 @@ const queueOrders = computed(() => {
     .map((o) => {
       const allKitchenItems = (o.items || []).filter((it: any) => it.fulfillmentOwner !== 'WAITER')
       // Only show items that still need cooking/preparation (exclude items already delivered to the table)
-      const activeKitchenItems = allKitchenItems.filter((it: any) => (it.status || '').toUpperCase() !== 'DELIVERED')
+      const rawActiveKitchenItems = allKitchenItems.filter((it: any) => (it.status || '').toUpperCase() !== 'DELIVERED')
+      // Consolidate identical dishes into a single row with total quantity
+      const activeKitchenItems = consolidateOrderItems(rawActiveKitchenItems)
       const readyItemsCount = activeKitchenItems.filter((it: any) => (it.status || '').toUpperCase() === 'READY').length
       
       const oTime = new Date(o.createdAt).getTime()
@@ -514,7 +517,7 @@ const completedOrders = computed(() => {
   return orders.value
     .map((o) => ({
       ...o,
-      kitchenItems: (o.items || []).filter((it: any) => it.fulfillmentOwner !== 'WAITER'),
+      kitchenItems: consolidateOrderItems((o.items || []).filter((it: any) => it.fulfillmentOwner !== 'WAITER')),
     }))
     .filter((o) => {
       const s = (o.status || "").toLowerCase()
@@ -566,7 +569,7 @@ function formatTime(ts: string) {
 </script>
 
 <template>
-  <RoleLayout role="chef" :nav="chefNav">
+  <RoleLayout role="chef" :nav="chefNav" :active-tab="view" @tab-change="view = $event as any">
     <!-- ── Top Header with Queue Stats & Tab Switcher ── -->
     <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-5">
       <div>
