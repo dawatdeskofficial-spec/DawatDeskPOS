@@ -91,16 +91,15 @@ function handleLogoutClick() {
 
     <!-- Right: Notification / Profile Actions -->
     <div class="flex items-center gap-1.5 shrink-0">
-      <!-- Waiter Notification Bell -->
+      <!-- Notification Bell -->
       <button
-        v-if="isWaiter"
         type="button"
         @click="$emit('openNotif')"
         class="relative h-9 w-9 rounded-xl border border-border bg-card hover:bg-muted active:scale-95 flex items-center justify-center transition cursor-pointer text-foreground shadow-xs"
-        aria-label="Kitchen notifications"
+        aria-label="Notifications"
       >
-        <BellRing v-if="hasNewNotif" class="h-4 w-4 text-emerald-500 animate-[bell_0.5s_ease-in-out_infinite_alternate]" />
-        <Bell v-else class="h-4 w-4" />
+        <BellRing v-if="hasNewNotif || readyCount > 0" class="h-4 w-4 text-emerald-500 animate-[bell_0.5s_ease-in-out_infinite_alternate]" />
+        <Bell v-else class="h-4 w-4 text-muted-foreground" />
         <span
           v-if="readyCount > 0"
           class="absolute -top-1 -right-1 min-w-[17px] h-[17px] px-1 rounded-full bg-destructive text-destructive-foreground text-[9px] font-bold flex items-center justify-center ring-2 ring-card shadow-xs"

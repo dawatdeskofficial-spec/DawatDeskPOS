@@ -357,7 +357,7 @@ function formatTime(ts: string) {
     <!-- Main -->
     <div class="flex-1 flex flex-col min-w-0">
       <!-- Mobile App Header (Visible on screens < lg) -->
-      <div class="lg:hidden">
+      <div class="lg:hidden relative">
         <AppHeader
           :brand="displayBrand"
           :role="role"
@@ -372,6 +372,86 @@ function formatTime(ts: string) {
           @logout="handleLogout"
         />
         <OfflineBanner />
+
+        <!-- Mobile Click-outside backdrop -->
+        <div
+          v-if="notifOpen"
+          class="fixed inset-0 z-40"
+          @click="notifOpen = false"
+        />
+
+        <!-- Mobile Notification Dropdown Box -->
+        <Transition name="notif">
+          <div
+            v-if="notifOpen"
+            class="fixed left-3 right-3 top-16 max-h-[80vh] rounded-2xl bg-card border border-border shadow-2xl flex flex-col z-50 overflow-hidden"
+          >
+            <!-- Header -->
+            <div class="px-4 py-3 border-b border-border flex items-center justify-between bg-muted/40">
+              <div class="flex items-center gap-2">
+                <BellRing class="h-4 w-4 text-primary" />
+                <span class="font-bold text-xs uppercase tracking-wider text-foreground">Notifications</span>
+              </div>
+              <div class="flex items-center gap-2">
+                <span v-if="readyOrders.length > 0" class="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-full border border-emerald-500/20">
+                  {{ readyOrders.length }} Ready
+                </span>
+                <span v-else class="text-[10px] font-semibold text-muted-foreground flex items-center gap-1">
+                  <span class="h-1.5 w-1.5 rounded-full bg-emerald-500" /> Synced
+                </span>
+                <button
+                  @click="notifOpen = false"
+                  class="text-muted-foreground hover:text-foreground text-xs p-1 rounded-lg hover:bg-muted cursor-pointer"
+                >
+                  <X class="h-3.5 w-3.5" />
+                </button>
+              </div>
+            </div>
+
+            <!-- Content -->
+            <div class="max-h-[360px] overflow-y-auto divide-y divide-border">
+              <!-- Ready orders for Waiters -->
+              <template v-if="isWaiter && readyOrders.length > 0">
+                <div
+                  v-for="o in readyOrders"
+                  :key="o.id || o._id"
+                  class="p-3.5 hover:bg-muted/30 transition group space-y-2"
+                >
+                  <div class="flex items-start justify-between gap-2">
+                    <div>
+                      <div class="font-display text-sm font-bold leading-none text-foreground">Table {{ o.tableNumber }}</div>
+                      <div class="text-[10px] font-mono text-muted-foreground mt-1 flex items-center gap-1">
+                        <Clock class="h-2.5 w-2.5" />{{ formatTime(o.createdAt) }}
+                      </div>
+                    </div>
+                    <span class="shrink-0 px-2 py-0.5 rounded-md bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 text-[9.5px] font-black uppercase animate-pulse">
+                      Ready for Pickup
+                    </span>
+                  </div>
+                  <div class="text-xs text-muted-foreground line-clamp-2">
+                    {{ consolidateOrderItems(o.items).map((it: any) => `${it.qty}× ${it.name}`).join(', ') }}
+                  </div>
+                  <button
+                    @click="serveOrder(o.id || o._id, o.tableNumber)"
+                    class="w-full h-8 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold flex items-center justify-center gap-1.5 shadow-xs cursor-pointer transition"
+                  >
+                    <CheckCircle2 class="h-3.5 w-3.5" />
+                    <span>Mark as Served</span>
+                  </button>
+                </div>
+              </template>
+
+              <!-- General Status / Empty State -->
+              <div v-else class="p-6 text-center text-muted-foreground space-y-1.5">
+                <div class="h-10 w-10 rounded-2xl bg-primary/10 text-primary flex items-center justify-center mx-auto mb-2">
+                  <CheckCircle2 class="h-5 w-5 text-primary" />
+                </div>
+                <p class="text-xs font-bold text-foreground">All Caught Up</p>
+                <p class="text-[11px] text-muted-foreground max-w-xs mx-auto">No pending kitchen orders or alerts. Real-time updates will appear here.</p>
+              </div>
+            </div>
+          </div>
+        </Transition>
       </div>
 
       <!-- Desktop Header (Visible on large screens / desktops) -->
@@ -399,101 +479,105 @@ function formatTime(ts: string) {
             <Moon v-else class="h-4 w-4" />
           </Button>
 
-          <!-- ── Bell Notification (Waiter only) ───────────────────────────── -->
-          <div v-if="isWaiter" class="relative">
+          <!-- ── Bell Notification Dropdown (All roles) ───────────────────────────── -->
+          <div class="relative">
             <button
               @click="openNotifPanel"
-              :class="['relative h-9 w-9 rounded-lg flex items-center justify-center transition', notifOpen ? 'bg-primary/10 text-primary' : 'hover:bg-muted text-foreground']"
-              aria-label="Kitchen notifications"
+              :class="['relative h-9 w-9 rounded-xl flex items-center justify-center transition cursor-pointer', notifOpen ? 'bg-primary/10 text-primary' : 'hover:bg-muted text-foreground']"
+              title="Notifications"
+              aria-label="Kitchen and system notifications"
             >
-              <BellRing v-if="hasNewNotif" class="h-4 w-4 text-success animate-[bell_0.5s_ease-in-out_infinite_alternate]" />
-              <Bell v-else class="h-4 w-4" />
+              <BellRing v-if="hasNewNotif || readyOrders.length > 0" class="h-4 w-4 text-emerald-500 animate-[bell_0.5s_ease-in-out_infinite_alternate]" />
+              <Bell v-else class="h-4 w-4 text-muted-foreground" />
               <!-- Red badge count -->
               <span
                 v-if="readyOrders.length > 0"
-                class="absolute -top-0.5 -right-0.5 min-w-[18px] h-[18px] px-1 rounded-full bg-destructive text-destructive-foreground text-[10px] font-bold flex items-center justify-center ring-2 ring-background"
+                class="absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 rounded-full bg-destructive text-destructive-foreground text-[10px] font-bold flex items-center justify-center ring-2 ring-card shadow-xs"
               >
                 {{ readyOrders.length }}
               </span>
             </button>
 
-            <!-- Click-outside backdrop (completely transparent, no dimming or blurring) -->
+            <!-- Click-outside backdrop -->
             <div
               v-if="notifOpen"
               class="fixed inset-0 z-40"
               @click="notifOpen = false"
             />
 
-            <!-- Notification dropdown panel -->
+            <!-- Desktop Notification Dropdown Box -->
             <Transition name="notif">
               <div
                 v-if="notifOpen"
-                class="fixed left-3 right-3 top-16 sm:absolute sm:left-auto sm:right-0 sm:top-full sm:mt-2.5 sm:w-96 max-h-[85vh] rounded-2xl bg-card border border-border shadow-2xl flex flex-col z-50 overflow-hidden"
+                class="absolute right-0 top-full mt-2 w-88 max-h-[80vh] rounded-2xl bg-card border border-border shadow-2xl flex flex-col z-50 overflow-hidden"
               >
                 <!-- Header -->
-                <div class="px-4 py-3 border-b border-border flex items-center justify-between bg-muted/30">
+                <div class="px-4 py-3 border-b border-border flex items-center justify-between bg-muted/40">
                   <div class="flex items-center gap-2">
-                    <BellRing class="h-4 w-4 text-success" />
-                    <span class="font-semibold text-sm">Kitchen Ready</span>
+                    <BellRing class="h-4 w-4 text-primary" />
+                    <span class="font-bold text-xs uppercase tracking-wider text-foreground">Notifications</span>
                   </div>
                   <div class="flex items-center gap-2">
-                    <span v-if="readyOrders.length > 0" class="text-xs font-bold text-success bg-success/10 px-2 py-0.5 rounded-full">
-                      {{ readyOrders.length }} waiting
+                    <span v-if="readyOrders.length > 0" class="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-full border border-emerald-500/20">
+                      {{ readyOrders.length }} Ready
+                    </span>
+                    <span v-else class="text-[10px] font-semibold text-muted-foreground flex items-center gap-1">
+                      <span class="h-1.5 w-1.5 rounded-full bg-emerald-500" /> Synced
                     </span>
                     <button
                       @click="notifOpen = false"
-                      class="text-muted-foreground hover:text-foreground text-xs p-1"
+                      class="text-muted-foreground hover:text-foreground text-xs p-1 rounded-lg hover:bg-muted cursor-pointer"
                     >
-                      <X class="h-4 w-4" />
+                      <X class="h-3.5 w-3.5" />
                     </button>
                   </div>
                 </div>
 
-                <!-- Empty state -->
-                <div v-if="readyOrders.length === 0" class="p-8 text-center text-muted-foreground">
-                  <CheckCircle2 class="h-8 w-8 mx-auto mb-2 opacity-30 text-success" />
-                  <p class="text-sm font-medium">All clear!</p>
-                  <p class="text-xs mt-0.5">No orders waiting in kitchen.</p>
-                </div>
-
-                <!-- Order cards -->
-                <div v-else class="max-h-[380px] overflow-y-auto divide-y divide-border">
-                  <div
-                    v-for="o in readyOrders"
-                    :key="o.id || o._id"
-                    class="p-3 hover:bg-muted/30 transition group"
-                  >
-                    <div class="flex items-start justify-between gap-2 mb-2">
-                      <div>
-                        <div class="font-display text-base font-bold leading-none">Table {{ o.tableNumber }}</div>
-                        <div class="text-[10px] font-mono text-muted-foreground mt-0.5 flex items-center gap-1">
-                          <Clock class="h-2.5 w-2.5" />{{ formatTime(o.createdAt) }}
-                        </div>
-                      </div>
-                      <span class="shrink-0 px-2 py-0.5 rounded-full bg-success/10 text-success border border-success/20 text-[10px] font-bold uppercase animate-pulse">
-                        READY
-                      </span>
-                    </div>
-                    <div class="text-xs text-muted-foreground mb-2.5 line-clamp-2">
-                      {{ consolidateOrderItems(o.items).map((it: any) => `${it.qty}× ${it.name}`).join(', ') }}
-                    </div>
-                    <button
-                      @click="serveOrder(o.id || o._id, o.tableNumber)"
-                      class="w-full h-8 rounded-lg gradient-success text-success-foreground text-xs font-bold flex items-center justify-center gap-1.5 shadow-sm hover:opacity-90 transition"
+                <!-- Content -->
+                <div class="max-h-[360px] overflow-y-auto divide-y divide-border">
+                  <!-- Ready orders for Waiters -->
+                  <template v-if="isWaiter && readyOrders.length > 0">
+                    <div
+                      v-for="o in readyOrders"
+                      :key="o.id || o._id"
+                      class="p-3.5 hover:bg-muted/30 transition group space-y-2"
                     >
-                      <CheckCircle2 class="h-3.5 w-3.5" />
-                      Mark as Served
-                    </button>
+                      <div class="flex items-start justify-between gap-2">
+                        <div>
+                          <div class="font-display text-sm font-bold leading-none text-foreground">Table {{ o.tableNumber }}</div>
+                          <div class="text-[10px] font-mono text-muted-foreground mt-1 flex items-center gap-1">
+                            <Clock class="h-2.5 w-2.5" />{{ formatTime(o.createdAt) }}
+                          </div>
+                        </div>
+                        <span class="shrink-0 px-2 py-0.5 rounded-md bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 text-[9.5px] font-black uppercase animate-pulse">
+                          Ready for Pickup
+                        </span>
+                      </div>
+                      <div class="text-xs text-muted-foreground line-clamp-2">
+                        {{ consolidateOrderItems(o.items).map((it: any) => `${it.qty}× ${it.name}`).join(', ') }}
+                      </div>
+                      <button
+                        @click="serveOrder(o.id || o._id, o.tableNumber)"
+                        class="w-full h-8 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold flex items-center justify-center gap-1.5 shadow-xs cursor-pointer transition"
+                      >
+                        <CheckCircle2 class="h-3.5 w-3.5" />
+                        <span>Mark as Served</span>
+                      </button>
+                    </div>
+                  </template>
+
+                  <!-- General Status / Empty State -->
+                  <div v-else class="p-6 text-center text-muted-foreground space-y-1.5">
+                    <div class="h-10 w-10 rounded-2xl bg-primary/10 text-primary flex items-center justify-center mx-auto mb-2">
+                      <CheckCircle2 class="h-5 w-5 text-primary" />
+                    </div>
+                    <p class="text-xs font-bold text-foreground">All Caught Up</p>
+                    <p class="text-[11px] text-muted-foreground max-w-xs mx-auto">No pending kitchen orders or alerts. Real-time updates will appear here.</p>
                   </div>
                 </div>
               </div>
             </Transition>
           </div>
-
-          <!-- Bell for non-waiter roles (static) -->
-          <Button v-else variant="ghost" size="icon" class="h-9 w-9 relative">
-            <Bell class="h-4 w-4" />
-          </Button>
 
           <!-- User dropdown -->
           <DropdownMenu>

@@ -768,38 +768,7 @@ function handleWaiterNavTab(tab: string) {
         </div>
       </div>
 
-    <!-- Ready Orders Instant Alert Banner (Visible when on Take Order view) -->
-    <div
-      v-if="view === 'take_order' && readyOrders.length > 0"
-      @click="view = 'ready_orders'"
-      class="mb-5 p-3 sm:p-3.5 rounded-2xl bg-emerald-500/10 border-2 border-emerald-500/30 hover:border-emerald-500/60 shadow-md cursor-pointer transition flex items-center justify-between gap-3 group"
-    >
-      <div class="flex items-center gap-3 min-w-0">
-        <div class="h-9 w-9 rounded-xl bg-emerald-500 text-white grid place-items-center shrink-0 shadow-sm">
-          <BellRing class="h-5 w-5 animate-bounce" />
-        </div>
-        <div class="min-w-0">
-          <div class="flex items-center gap-2">
-            <span class="font-display font-bold text-sm text-foreground">
-              {{ readyOrders.length }} Order{{ readyOrders.length !== 1 ? 's' : '' }} Ready for Pickup!
-            </span>
-            <span class="text-[10px] font-bold px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 uppercase tracking-wider">
-              Kitchen Ready
-            </span>
-          </div>
-          <p class="text-xs text-muted-foreground truncate mt-0.5">
-            Kitchen has finished cooking. Tap to view ready list and mark served.
-          </p>
-        </div>
-      </div>
-      <Button
-        size="sm"
-        class="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold shrink-0 rounded-xl group-hover:translate-x-0.5 transition pointer-events-none"
-      >
-        View Ready
-        <ArrowRight class="h-3.5 w-3.5 ml-1" />
-      </Button>
-    </div>
+
 
     <!-- ══════════════════════════════════════════ -->
     <!--  1. READY ORDERS VIEW                      -->
