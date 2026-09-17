@@ -5,7 +5,7 @@ import {
   BellRing, ShoppingBag, ArrowLeft, UtensilsCrossed, X,
   ChevronRight, Receipt, Search,
   ArrowRight, FileText, Sparkles,
-  Edit, Flame, AlertCircle, Check, Lock, Unlock
+  Edit, Flame, AlertCircle, Check, Lock, Unlock, Loader2
 } from 'lucide-vue-next'
 import { toast } from 'vue-sonner'
 import RoleLayout from '@/components/RoleLayout.vue'
@@ -326,16 +326,35 @@ async function place() {
   }
 }
 
+const servingOrderState = ref<Record<string, 'serving' | 'served'>>({})
+
 async function handleServe(orderId: string, tableNumber: number, isParcel = false, customerName = '') {
+  const idStr = String(orderId)
+  if (servingOrderState.value[idStr]) return
+  servingOrderState.value[idStr] = 'serving'
+
   try {
     await updateOrderStatus(orderId, 'SERVED')
-    if (isParcel) {
-      toast.success(`Parcel for ${customerName || 'Takeaway'} has been handed over!`)
-    } else {
-      toast.success(`Table ${tableNumber} marked as served!`)
+    servingOrderState.value[idStr] = 'served'
+
+    // Tactile haptic feedback on mobile devices
+    if (typeof navigator !== 'undefined' && navigator.vibrate) {
+      try { navigator.vibrate([30, 40, 30]) } catch {}
     }
-    loadDynamicData()
+
+    if (isParcel) {
+      toast.success(`✓ Parcel for ${customerName || 'Takeaway'} handed over!`)
+    } else {
+      toast.success(`✓ Table ${tableNumber} marked as served!`)
+    }
+
+    // Smooth transition window so the user gets satisfying visual confirmation
+    setTimeout(async () => {
+      await loadDynamicData()
+      delete servingOrderState.value[idStr]
+    }, 550)
   } catch (err: any) {
+    delete servingOrderState.value[idStr]
     toast.error(err.message || 'Failed to mark as served')
   }
 }
@@ -863,15 +882,35 @@ function handleWaiterNavTab(tab: string) {
             </div>
           </div>
 
-          <!-- Action Button -->
+          <!-- Action Button with Satisfying Smooth State -->
           <div class="p-3 bg-card">
-            <Button
+            <button
               @click="handleServe(o.id || o._id, o.tableNumber, o.orderType === 'PARCEL' || Number(o.tableNumber) === 0, o.customerName)"
-              class="w-full h-10 gradient-success text-success-foreground font-bold shadow-glow text-xs sm:text-sm cursor-pointer"
+              :disabled="servingOrderState[String(o.id || o._id)] !== undefined"
+              :class="[
+                'w-full h-11 rounded-xl font-bold text-xs sm:text-sm flex items-center justify-center gap-2 cursor-pointer transition-all duration-300 select-none transform active:scale-95 shadow-md',
+                servingOrderState[String(o.id || o._id)] === 'served'
+                  ? 'bg-emerald-500 text-white shadow-lg shadow-emerald-500/40 scale-102 ring-4 ring-emerald-400/30'
+                  : servingOrderState[String(o.id || o._id)] === 'serving'
+                  ? 'bg-emerald-600/90 text-white cursor-wait opacity-90'
+                  : 'gradient-success text-success-foreground shadow-glow hover:brightness-105 hover:shadow-lg'
+              ]"
             >
-              <CheckCircle2 class="h-4 w-4 mr-1.5" />
-              {{ (o.orderType === 'PARCEL' || Number(o.tableNumber) === 0) ? 'Handover Parcel' : `Mark Table ${o.tableNumber} as Served` }}
-            </Button>
+              <template v-if="servingOrderState[String(o.id || o._id)] === 'served'">
+                <CheckCircle2 class="h-4.5 w-4.5 text-white animate-in zoom-in spin-in-90 duration-300" />
+                <span class="font-extrabold tracking-wide text-white">
+                  {{ (o.orderType === 'PARCEL' || Number(o.tableNumber) === 0) ? '✓ Parcel Handed Over!' : `✓ Table ${o.tableNumber} Served!` }}
+                </span>
+              </template>
+              <template v-else-if="servingOrderState[String(o.id || o._id)] === 'serving'">
+                <Loader2 class="h-4 w-4 animate-spin text-white" />
+                <span>Serving Table {{ o.tableNumber }}...</span>
+              </template>
+              <template v-else>
+                <CheckCircle2 class="h-4 w-4 mr-0.5" />
+                <span>{{ (o.orderType === 'PARCEL' || Number(o.tableNumber) === 0) ? 'Handover Parcel' : `Mark Table ${o.tableNumber} as Served` }}</span>
+              </template>
+            </button>
           </div>
         </div>
       </div>

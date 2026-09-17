@@ -131,17 +131,32 @@ async function pollReadyOrders() {
   }
 }
 
+const servingNotifIds = ref<Record<string, 'serving' | 'served'>>({})
+
 async function serveOrder(orderId: string, tableNumber: number) {
+  const idStr = String(orderId)
+  if (servingNotifIds.value[idStr]) return
+  servingNotifIds.value[idStr] = 'serving'
+
   try {
     await updateOrderStatus(orderId, 'SERVED')
-    toast.success(`Table ${tableNumber} marked as served!`)
-    // Remove from list immediately
-    readyOrders.value = readyOrders.value.filter(
-      (o: any) => String(o.id || o._id) !== orderId
-    )
-    seenReadyIds.value.delete(orderId)
-    if (readyOrders.value.length === 0) hasNewNotif.value = false
+    servingNotifIds.value[idStr] = 'served'
+
+    if (typeof navigator !== 'undefined' && navigator.vibrate) {
+      try { navigator.vibrate([25, 40, 25]) } catch {}
+    }
+    toast.success(`✓ Table ${tableNumber} marked as served!`)
+
+    setTimeout(() => {
+      readyOrders.value = readyOrders.value.filter(
+        (o: any) => String(o.id || o._id) !== orderId
+      )
+      seenReadyIds.value.delete(orderId)
+      delete servingNotifIds.value[idStr]
+      if (readyOrders.value.length === 0) hasNewNotif.value = false
+    }, 450)
   } catch (err: any) {
+    delete servingNotifIds.value[idStr]
     toast.error(err.message || 'Failed to mark as served')
   }
 }
@@ -434,10 +449,18 @@ function formatTime(ts: string) {
                   <div class="flex items-center justify-end pt-0.5">
                     <button
                       @click="serveOrder(o.id || o._id, o.tableNumber)"
-                      class="h-7 px-3 rounded-lg bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white text-[11px] font-bold flex items-center gap-1 shadow-2xs cursor-pointer transition"
+                      :disabled="servingNotifIds[String(o.id || o._id)] !== undefined"
+                      :class="[
+                        'h-7 px-3 rounded-lg text-[11px] font-bold flex items-center gap-1 cursor-pointer transition-all duration-300 select-none active:scale-95',
+                        servingNotifIds[String(o.id || o._id)] === 'served'
+                          ? 'bg-emerald-500 text-white scale-105 ring-2 ring-emerald-400/40 shadow-xs'
+                          : servingNotifIds[String(o.id || o._id)] === 'serving'
+                          ? 'bg-emerald-700 text-white cursor-wait'
+                          : 'bg-emerald-600 hover:bg-emerald-700 text-white shadow-2xs'
+                      ]"
                     >
                       <CheckCircle2 class="h-3 w-3" />
-                      <span>Mark as Served</span>
+                      <span>{{ servingNotifIds[String(o.id || o._id)] === 'served' ? '✓ Served!' : 'Mark as Served' }}</span>
                     </button>
                   </div>
                 </div>
