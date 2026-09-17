@@ -707,7 +707,7 @@ const cashShortfall = computed(() =>
   cashGivenNum.value > 0 && cashGivenNum.value < total.value
     ? total.value - cashGivenNum.value : 0)
 const cashValid = computed(() =>
-  method.value !== 'CASH' || cashGivenNum.value >= total.value)
+  method.value !== 'CASH' || cashGivenNum.value === 0 || cashGivenNum.value >= total.value)
 
 
 // ── Complete Payment ──────────────────────────────────────────────────────────
@@ -717,7 +717,7 @@ async function handleCompletePayment() {
     toast.error('Please save your bill edits before collecting payment.')
     return
   }
-  if (!cashValid.value) {
+  if (!cashValid.value && cashShortfall.value > 0) {
     toast.error(`Cash given (₹${cashGivenNum.value.toFixed(0)}) is less than total (₹${total.value.toFixed(0)})`)
     return
   }
@@ -965,7 +965,7 @@ function handleCashierTabChange(tab: string) {
     <!-- TAB 1: BILLING & ORDERS                                                 -->
     <!-- ═══════════════════════════════════════════════════════════════════════ -->
     <div v-if="activeTab === 'billing'">
-      <div class="grid grid-cols-1 xl:grid-cols-[1fr_400px] gap-6 pb-28 xl:pb-0">
+      <div class="grid grid-cols-1 xl:grid-cols-[1fr_400px] gap-6 pb-36 xl:pb-0">
 
       <!-- Left: Active Orders List -->
       <div class="space-y-6">
@@ -1307,7 +1307,10 @@ function handleCashierTabChange(tab: string) {
               <!-- Instant Cash Input & Change Return Banner (Always Visible) -->
               <div v-if="method === 'CASH'" class="p-2.5 rounded-xl border border-border bg-muted/20 flex items-center justify-between gap-2.5">
                 <div class="flex-1 min-w-0">
-                  <label class="text-[10px] font-bold uppercase tracking-wider text-muted-foreground block mb-0.5">Customer Gives</label>
+                  <div class="flex items-center justify-between mb-0.5">
+                    <label class="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Customer Gives</label>
+                    <span class="text-[9px] font-semibold text-muted-foreground/80">(Optional)</span>
+                  </div>
                   <div class="relative">
                     <span class="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground text-xs font-bold">₹</span>
                     <input
@@ -1315,7 +1318,7 @@ function handleCashierTabChange(tab: string) {
                       type="text"
                       inputmode="numeric"
                       pattern="[0-9]*"
-                      placeholder="e.g. 500"
+                      placeholder="e.g. 500 (Optional)"
                       class="w-full pl-6 pr-2 py-1 rounded-lg border border-border bg-background text-sm font-bold focus:outline-none focus:ring-1 focus:ring-primary tabular-nums"
                       @keydown="(e) => { if (!/^[0-9]$/.test(e.key) && !['Backspace','Delete','Tab','ArrowLeft','ArrowRight','Home','End'].includes(e.key)) e.preventDefault() }"
                       @input="cashGiven = cashGiven.replace(/[^0-9]/g, '')"
@@ -1374,7 +1377,7 @@ function handleCashierTabChange(tab: string) {
                   class="w-full h-10.5 gradient-primary text-primary-foreground font-bold shadow-soft text-xs sm:text-sm cursor-pointer"
                 >
                   <CheckCircle2 class="h-4 w-4 mr-1.5" />
-                  <span>{{ actionLoading ? 'Processing...' : (method === 'CASH' && changeAmount > 0 ? `Complete Payment · Return ₹${changeAmount.toFixed(0)}` : 'Complete Payment') }}</span>
+                  <span>{{ actionLoading ? 'Processing...' : (method === 'CASH' && changeAmount > 0 ? `Complete Payment · Return ₹${changeAmount.toFixed(0)}` : `Complete Payment · ₹${total.toFixed(0)}`) }}</span>
                 </Button>
                 <Button
                   @click="downloadPDF(selectedOrder, false)"
@@ -1393,7 +1396,7 @@ function handleCashierTabChange(tab: string) {
     <!-- ── Mobile Floating Quick Settlement Lower Bar (Waiter Style) ─────── -->
     <div
       v-if="selectedOrder && activeTab === 'billing' && !mobileInvoiceOpen"
-      class="fixed bottom-4 left-3 right-3 z-40 p-3 sm:p-4 rounded-2xl bg-card/95 backdrop-blur-md border border-primary/40 shadow-2xl flex items-center justify-between xl:hidden cursor-pointer active:scale-[0.99] transition"
+      class="fixed bottom-20 left-3 right-3 z-30 p-3.5 sm:p-4 rounded-2xl bg-card/95 backdrop-blur-md border border-primary/40 shadow-2xl flex items-center justify-between xl:hidden cursor-pointer active:scale-[0.99] transition shadow-primary/10 ring-1 ring-primary/20"
       @click="mobileInvoiceOpen = true"
     >
       <div class="min-w-0 pr-3">
@@ -1577,7 +1580,10 @@ function handleCashierTabChange(tab: string) {
               <!-- Cash Calculator on Mobile -->
               <div v-if="method === 'CASH'" class="p-2 rounded-xl border border-border bg-muted/20 flex items-center justify-between gap-2">
                 <div class="flex-1 min-w-0">
-                  <label class="text-[9px] font-bold uppercase tracking-wider text-muted-foreground block mb-0.5">Customer Gives</label>
+                  <div class="flex items-center justify-between mb-0.5">
+                    <label class="text-[9px] font-bold uppercase tracking-wider text-muted-foreground">Customer Gives</label>
+                    <span class="text-[8px] font-semibold text-muted-foreground/80">(Optional)</span>
+                  </div>
                   <div class="relative">
                     <span class="absolute left-2 top-1/2 -translate-y-1/2 text-muted-foreground text-xs font-bold">₹</span>
                     <input
@@ -1585,7 +1591,7 @@ function handleCashierTabChange(tab: string) {
                       type="text"
                       inputmode="numeric"
                       pattern="[0-9]*"
-                      placeholder="e.g. 500"
+                      placeholder="e.g. 500 (Optional)"
                       class="w-full pl-5 pr-2 py-1 rounded-lg border border-border bg-background text-xs font-bold focus:outline-none focus:ring-1 focus:ring-primary tabular-nums"
                       @keydown="(e) => { if (!/^[0-9]$/.test(e.key) && !['Backspace','Delete','Tab','ArrowLeft','ArrowRight','Home','End'].includes(e.key)) e.preventDefault() }"
                       @input="cashGiven = cashGiven.replace(/[^0-9]/g, '')"
@@ -1631,7 +1637,7 @@ function handleCashierTabChange(tab: string) {
                   class="w-full h-10.5 gradient-primary text-primary-foreground font-bold text-xs sm:text-sm cursor-pointer shadow-soft"
                 >
                   <CheckCircle2 class="h-4 w-4 mr-1.5" />
-                  <span>{{ actionLoading ? 'Processing...' : (method === 'CASH' && changeAmount > 0 ? `Complete Payment · Return ₹${changeAmount.toFixed(0)}` : 'Complete Payment') }}</span>
+                  <span>{{ actionLoading ? 'Processing...' : (method === 'CASH' && changeAmount > 0 ? `Complete Payment · Return ₹${changeAmount.toFixed(0)}` : `Complete Payment · ₹${total.toFixed(0)}`) }}</span>
                 </Button>
                 <Button @click="downloadPDF(selectedOrder, false)" variant="outline" class="w-full h-8 text-xs cursor-pointer">
                   <Download class="h-3.5 w-3.5 mr-1.5" /> Download Receipt PDF
