@@ -1,4 +1,4 @@
-# Servia - Restaurant Management System
+# DawatDesk- Restaurant Management System
 
 Servia is a full-stack restaurant operations app with role dashboards for platform admins, restaurant admins, waiters, chefs, and cashiers. The backend is an Express.js + MongoDB/Mongoose REST API; the frontend is React + TypeScript + TanStack Router + Tailwind.
 
