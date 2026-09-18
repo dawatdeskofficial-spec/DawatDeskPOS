@@ -1,0 +1,19 @@
+services:
+  - type: web
+    name: dawatdesk-backend
+    env: node
+    plan: free
+    rootDir: BackEnd
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 10000
+      - key: MONGODB_URI
+        sync: false
+      - key: JWT_SECRET
+        sync: false

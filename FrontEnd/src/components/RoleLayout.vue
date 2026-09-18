@@ -723,12 +723,12 @@ function formatTime(ts: string) {
           <!-- Current User Session Card Preview -->
           <div class="w-full p-3 mt-4 rounded-2xl bg-muted/40 border border-border/70 flex items-center gap-3 text-left">
             <div class="h-10 w-10 rounded-xl gradient-primary text-primary-foreground flex items-center justify-center font-bold text-sm shrink-0 shadow-xs">
-              {{ (auth.user?.name || auth.user?.username || 'U').charAt(0).toUpperCase() }}
+              {{ (auth.user?.name || (auth.user as any)?.username || 'U').charAt(0).toUpperCase() }}
             </div>
             <div class="min-w-0 flex-1">
               <div class="flex items-center justify-between gap-1">
                 <span class="font-bold text-xs text-foreground truncate">
-                  {{ auth.user?.name || auth.user?.username || 'Current User' }}
+                  {{ auth.user?.name || (auth.user as any)?.username || 'Current User' }}
                 </span>
                 <span class="text-[10px] font-semibold text-emerald-600 dark:text-emerald-400 flex items-center gap-1 shrink-0">
                   <span class="h-1.5 w-1.5 rounded-full bg-emerald-500" /> Active
