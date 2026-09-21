@@ -5,7 +5,7 @@ import {
   BellRing, ShoppingBag, ArrowLeft, UtensilsCrossed, X,
   ChevronRight, Receipt, Search,
   ArrowRight, FileText, Sparkles,
-  Edit, Flame, AlertCircle, Check, Lock, Unlock
+  Edit, Flame, AlertCircle, Check, Lock, Unlock, Loader2
 } from 'lucide-vue-next'
 import { toast } from 'vue-sonner'
 import RoleLayout from '@/components/RoleLayout.vue'
@@ -15,6 +15,7 @@ import {
   updateOrderStatus, getCategoriesByRestaurant, getWaitingQueue, type MenuCategory,
   batchUpdateOrderItems, cancelOrder
 } from '@/lib/api'
+import { consolidateOrderItems } from '@/lib/utils'
 import { useAuthStore } from '@/stores/auth'
 import Button from '@/components/ui/Button.vue'
 import Badge from '@/components/ui/Badge.vue'
@@ -325,16 +326,35 @@ async function place() {
   }
 }
 
+const servingOrderState = ref<Record<string, 'serving' | 'served'>>({})
+
 async function handleServe(orderId: string, tableNumber: number, isParcel = false, customerName = '') {
+  const idStr = String(orderId)
+  if (servingOrderState.value[idStr]) return
+  servingOrderState.value[idStr] = 'serving'
+
   try {
     await updateOrderStatus(orderId, 'SERVED')
-    if (isParcel) {
-      toast.success(`Parcel for ${customerName || 'Takeaway'} has been handed over!`)
-    } else {
-      toast.success(`Table ${tableNumber} marked as served!`)
+    servingOrderState.value[idStr] = 'served'
+
+    // Tactile haptic feedback on mobile devices
+    if (typeof navigator !== 'undefined' && navigator.vibrate) {
+      try { navigator.vibrate([30, 40, 30]) } catch {}
     }
-    loadDynamicData()
+
+    if (isParcel) {
+      toast.success(`✓ Parcel for ${customerName || 'Takeaway'} handed over!`)
+    } else {
+      toast.success(`✓ Table ${tableNumber} marked as served!`)
+    }
+
+    // Smooth transition window so the user gets satisfying visual confirmation
+    setTimeout(async () => {
+      await loadDynamicData()
+      delete servingOrderState.value[idStr]
+    }, 550)
   } catch (err: any) {
+    delete servingOrderState.value[idStr]
     toast.error(err.message || 'Failed to mark as served')
   }
 }
@@ -689,10 +709,29 @@ const filteredMenuItems = computed(() => {
 function formatTime(ts: string) {
   return new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
 }
+
+const currentWaiterNavTab = computed(() => {
+  if (view.value === 'ready_orders') return 'ready_orders'
+  if (view.value === 'history') return 'history'
+  return table.value ? 'take_order' : 'floor'
+})
+
+function handleWaiterNavTab(tab: string) {
+  if (tab === 'floor') {
+    table.value = null
+    view.value = 'take_order'
+  } else if (tab === 'take_order') {
+    view.value = 'take_order'
+  } else if (tab === 'ready_orders') {
+    view.value = 'ready_orders'
+  } else if (tab === 'history') {
+    view.value = 'history'
+  }
+}
 </script>
 
 <template>
-  <RoleLayout role="waiter" :nav="waiterNav">
+  <RoleLayout role="waiter" :nav="waiterNav" :active-tab="currentWaiterNavTab" @tab-change="handleWaiterNavTab">
     <!-- ══════════════════════════════════════════ -->
     <!--  Top Segmented Navigation Tab Bar          -->
     <!-- ══════════════════════════════════════════ -->
@@ -748,38 +787,7 @@ function formatTime(ts: string) {
         </div>
       </div>
 
-    <!-- Ready Orders Instant Alert Banner (Visible when on Take Order view) -->
-    <div
-      v-if="view === 'take_order' && readyOrders.length > 0"
-      @click="view = 'ready_orders'"
-      class="mb-5 p-3 sm:p-3.5 rounded-2xl bg-emerald-500/10 border-2 border-emerald-500/30 hover:border-emerald-500/60 shadow-md cursor-pointer transition flex items-center justify-between gap-3 group"
-    >
-      <div class="flex items-center gap-3 min-w-0">
-        <div class="h-9 w-9 rounded-xl bg-emerald-500 text-white grid place-items-center shrink-0 shadow-sm">
-          <BellRing class="h-5 w-5 animate-bounce" />
-        </div>
-        <div class="min-w-0">
-          <div class="flex items-center gap-2">
-            <span class="font-display font-bold text-sm text-foreground">
-              {{ readyOrders.length }} Order{{ readyOrders.length !== 1 ? 's' : '' }} Ready for Pickup!
-            </span>
-            <span class="text-[10px] font-bold px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 uppercase tracking-wider">
-              Kitchen Ready
-            </span>
-          </div>
-          <p class="text-xs text-muted-foreground truncate mt-0.5">
-            Kitchen has finished cooking. Tap to view ready list and mark served.
-          </p>
-        </div>
-      </div>
-      <Button
-        size="sm"
-        class="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold shrink-0 rounded-xl group-hover:translate-x-0.5 transition pointer-events-none"
-      >
-        View Ready
-        <ArrowRight class="h-3.5 w-3.5 ml-1" />
-      </Button>
-    </div>
+
 
     <!-- ══════════════════════════════════════════ -->
     <!--  1. READY ORDERS VIEW                      -->
@@ -849,7 +857,7 @@ function formatTime(ts: string) {
               <div class="text-[11px] font-medium text-muted-foreground mt-0.5 flex items-center gap-1.5">
                 <Clock class="h-3 w-3 text-muted-foreground" /> {{ formatTime(o.createdAt) }}
                 <span>·</span>
-                <strong class="text-success">{{ (o.items || []).length }} item{{ (o.items || []).length !== 1 ? 's' : '' }} ready</strong>
+                <strong class="text-success">{{ consolidateOrderItems(o.items).length }} dish{{ consolidateOrderItems(o.items).length !== 1 ? 'es' : '' }} ready</strong>
               </div>
             </div>
             <div :class="['h-9 w-9 rounded-full grid place-items-center animate-pulse', (o.orderType === 'PARCEL' || Number(o.tableNumber) === 0) ? 'bg-purple-500/20 text-purple-600' : 'bg-success/15 text-success']">
@@ -863,26 +871,46 @@ function formatTime(ts: string) {
               @click="toggleExpandReady(String(o.id || o._id))"
               class="w-full py-1 px-2.5 rounded-lg text-xs font-semibold text-muted-foreground hover:text-foreground hover:bg-muted/40 transition flex items-center justify-between"
             >
-              <span>{{ expandedReadyOrders.has(String(o.id || o._id)) ? 'Hide dishes list ▲' : `View dishes (${(o.items || []).length}) ▼` }}</span>
+              <span>{{ expandedReadyOrders.has(String(o.id || o._id)) ? 'Hide dishes list ▲' : `View dishes (${consolidateOrderItems(o.items).length}) ▼` }}</span>
               <span class="text-[10px] text-muted-foreground">Tap to view</span>
             </button>
             <div v-if="expandedReadyOrders.has(String(o.id || o._id))" class="mt-2 space-y-1 pt-1.5 border-t border-border/40">
-              <div v-for="(it, i) in (o.items || [])" :key="i" class="flex items-center justify-between text-xs py-1 px-2 rounded-md bg-card border border-border/40">
+              <div v-for="(it, i) in consolidateOrderItems(o.items)" :key="i" class="flex items-center justify-between text-xs py-1 px-2 rounded-md bg-card border border-border/40">
                 <span class="font-medium truncate"><span class="font-bold text-primary mr-1">{{ it.qty }}×</span>{{ it.name }}</span>
                 <span class="text-muted-foreground shrink-0 text-[10px]">₹{{ (it.price * it.qty).toFixed(0) }}</span>
               </div>
             </div>
           </div>
 
-          <!-- Action Button -->
+          <!-- Action Button with Satisfying Smooth State -->
           <div class="p-3 bg-card">
-            <Button
+            <button
               @click="handleServe(o.id || o._id, o.tableNumber, o.orderType === 'PARCEL' || Number(o.tableNumber) === 0, o.customerName)"
-              class="w-full h-10 gradient-success text-success-foreground font-bold shadow-glow text-xs sm:text-sm cursor-pointer"
+              :disabled="servingOrderState[String(o.id || o._id)] !== undefined"
+              :class="[
+                'w-full h-11 rounded-xl font-bold text-xs sm:text-sm flex items-center justify-center gap-2 cursor-pointer transition-all duration-300 select-none transform active:scale-95 shadow-md',
+                servingOrderState[String(o.id || o._id)] === 'served'
+                  ? 'bg-emerald-500 text-white shadow-lg shadow-emerald-500/40 scale-102 ring-4 ring-emerald-400/30'
+                  : servingOrderState[String(o.id || o._id)] === 'serving'
+                  ? 'bg-emerald-600/90 text-white cursor-wait opacity-90'
+                  : 'gradient-success text-success-foreground shadow-glow hover:brightness-105 hover:shadow-lg'
+              ]"
             >
-              <CheckCircle2 class="h-4 w-4 mr-1.5" />
-              {{ (o.orderType === 'PARCEL' || Number(o.tableNumber) === 0) ? 'Handover Parcel' : `Mark Table ${o.tableNumber} as Served` }}
-            </Button>
+              <template v-if="servingOrderState[String(o.id || o._id)] === 'served'">
+                <CheckCircle2 class="h-4.5 w-4.5 text-white animate-in zoom-in spin-in-90 duration-300" />
+                <span class="font-extrabold tracking-wide text-white">
+                  {{ (o.orderType === 'PARCEL' || Number(o.tableNumber) === 0) ? '✓ Parcel Handed Over!' : `✓ Table ${o.tableNumber} Served!` }}
+                </span>
+              </template>
+              <template v-else-if="servingOrderState[String(o.id || o._id)] === 'serving'">
+                <Loader2 class="h-4 w-4 animate-spin text-white" />
+                <span>Serving Table {{ o.tableNumber }}...</span>
+              </template>
+              <template v-else>
+                <CheckCircle2 class="h-4 w-4 mr-0.5" />
+                <span>{{ (o.orderType === 'PARCEL' || Number(o.tableNumber) === 0) ? 'Handover Parcel' : `Mark Table ${o.tableNumber} as Served` }}</span>
+              </template>
+            </button>
           </div>
         </div>
       </div>
@@ -937,7 +965,7 @@ function formatTime(ts: string) {
             </span>
           </div>
           <div class="p-3.5 space-y-1.5 max-h-40 overflow-y-auto">
-            <div v-for="(it, i) in (o.items || [])" :key="i" class="flex justify-between text-xs">
+            <div v-for="(it, i) in consolidateOrderItems(o.items)" :key="i" class="flex justify-between text-xs">
               <span class="truncate mr-2"><strong class="text-primary font-bold">{{ it.qty }}×</strong> {{ it.name }}</span>
               <span class="tabular-nums text-muted-foreground shrink-0">₹{{ (it.price * it.qty).toFixed(0) }}</span>
             </div>
@@ -1019,7 +1047,7 @@ function formatTime(ts: string) {
             t.status === 'available'
               ? 'border-emerald-500/30 bg-emerald-500/5 hover:border-emerald-500/70 hover:bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
               : t.kitchenStatus === 'PENDING'
-                ? 'border-orange-500/60 bg-orange-500/10 hover:border-orange-500 hover:bg-orange-500/15 text-orange-700 dark:text-orange-400 ring-2 ring-orange-500/25'
+                ? 'border-amber-400 bg-amber-400/15 hover:border-amber-500 hover:bg-amber-400/25 text-amber-800 dark:text-amber-300 ring-2 ring-amber-400/35'
                 : t.kitchenStatus === 'PREPARING'
                   ? 'border-sky-500/50 bg-sky-500/10 hover:border-sky-500 hover:bg-sky-500/15 text-sky-700 dark:text-sky-400'
                   : t.kitchenStatus === 'READY'
@@ -1028,7 +1056,7 @@ function formatTime(ts: string) {
           ]"
         >
           <!-- Corner pill for kitchen status -->
-          <div v-if="t.kitchenStatus === 'PENDING'" class="absolute top-1.5 right-1.5 flex items-center gap-0.5 px-1.5 py-0.5 rounded-full bg-orange-600 text-white text-[8px] font-black uppercase tracking-wider shadow-xs">
+          <div v-if="t.kitchenStatus === 'PENDING'" class="absolute top-1.5 right-1.5 flex items-center gap-0.5 px-1.5 py-0.5 rounded-full bg-amber-500 text-slate-950 text-[8px] font-black uppercase tracking-wider shadow-xs">
             <span>Edit</span>
           </div>
           <div v-else-if="t.kitchenStatus === 'PREPARING'" class="absolute top-1.5 right-1.5 flex items-center gap-0.5 px-1.5 py-0.5 rounded-full bg-sky-600 text-white text-[8px] font-black uppercase tracking-wider shadow-xs">
@@ -1076,8 +1104,18 @@ function formatTime(ts: string) {
           </div>
         </div>
 
-        <!-- Right: Active Bill Pill (If dining) -->
+        <!-- Right: Cart Indicator & Active Bill Pill -->
         <div class="flex items-center gap-1.5 shrink-0">
+          <button
+            v-if="cart.length > 0"
+            @click="mobileCartOpen = true"
+            class="h-9 px-3 rounded-xl gradient-primary text-primary-foreground flex items-center gap-1.5 text-xs font-bold shadow-xs cursor-pointer active:scale-95 transition"
+            title="View Cart & Place Order"
+          >
+            <ShoppingBag class="h-3.5 w-3.5" />
+            <span>{{ totalCartItems }} items · ₹{{ total.toFixed(0) }}</span>
+          </button>
+
           <button
             v-if="activeOrderForTable"
             @click="activeOrderModalOpen = true"
@@ -1095,10 +1133,10 @@ function formatTime(ts: string) {
         <!-- 1. PENDING: Chef has NOT pressed Start Cooking (Waiter CAN update order) -->
         <div
           v-if="isOrderPending"
-          class="p-3.5 sm:p-4 rounded-2xl bg-orange-500/10 border-2 border-orange-500/40 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-3"
+          class="p-3.5 sm:p-4 rounded-2xl bg-amber-500/10 border-2 border-amber-500/40 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-3"
         >
           <div class="flex items-start sm:items-center gap-3">
-            <div class="h-10 w-10 rounded-xl bg-orange-500/20 text-orange-600 dark:text-orange-400 grid place-items-center shrink-0">
+            <div class="h-10 w-10 rounded-xl bg-amber-500/20 text-amber-700 dark:text-amber-400 grid place-items-center shrink-0">
               <Clock class="h-5 w-5" />
             </div>
             <div>
@@ -1106,7 +1144,7 @@ function formatTime(ts: string) {
                 <span class="font-display font-bold text-sm sm:text-base text-foreground">
                   Pending Dishes in Kitchen ({{ pendingOrderItems.length }})
                 </span>
-                <Badge class="bg-orange-500/20 text-orange-800 dark:text-orange-200 border-orange-500/30 text-[10px] font-bold">
+                <Badge class="bg-amber-500/20 text-amber-900 dark:text-amber-200 border-amber-500/30 text-[10px] font-bold">
                   Chef hasn't started cooking yet
                 </Badge>
                 <span v-if="nonPendingOrderItems.length > 0" class="text-[11px] text-muted-foreground font-medium">
@@ -1123,7 +1161,7 @@ function formatTime(ts: string) {
             <Button
               @click="openUpdateOrderModal"
               size="sm"
-              class="h-9 px-3.5 rounded-xl bg-orange-600 hover:bg-orange-700 text-white font-bold text-xs shadow-xs flex items-center gap-1.5 cursor-pointer"
+              class="h-9 px-3.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold text-xs shadow-xs flex items-center gap-1.5 cursor-pointer"
             >
               <Edit class="h-3.5 w-3.5" />
               <span>Update Order</span>
@@ -1355,7 +1393,7 @@ function formatTime(ts: string) {
             </div>
 
             <!-- Mobile Screen (< sm / Phone Screen): Small Rectangle Box for Efficient Ordering -->
-            <div class="block sm:hidden space-y-2">
+            <div class="block sm:hidden space-y-2 pb-36">
               <div
                 v-for="m in filteredMenuItems"
                 :key="'mobile-' + m.id"
@@ -1493,34 +1531,37 @@ function formatTime(ts: string) {
       <!-- ══════════════════════════════════════════ -->
       <div
         v-if="cart.length > 0"
-        class="lg:hidden fixed bottom-0 left-0 right-0 z-40 p-3 bg-background/95 backdrop-blur-md border-t border-border shadow-2xl safe-area-bottom animate-in slide-in-from-bottom duration-200"
+        class="lg:hidden fixed bottom-14 sm:bottom-16 left-0 right-0 z-50 p-2.5 sm:p-3 bg-card/95 backdrop-blur-md border-t border-border shadow-[0_-8px_24px_rgba(0,0,0,0.15)] animate-in slide-in-from-bottom duration-200"
       >
-        <div class="flex items-center justify-between gap-3 max-w-lg mx-auto">
+        <div class="flex items-center justify-between gap-2.5 max-w-lg mx-auto">
           <!-- Left: Cart Summary Pill (Tap to open sheet) -->
           <button
             @click="mobileCartOpen = true"
-            class="flex items-center gap-2.5 text-left min-w-0 flex-1 group"
+            class="flex items-center gap-2 text-left min-w-0 flex-1 cursor-pointer active:scale-98 transition group"
           >
             <div class="h-10 w-10 rounded-xl gradient-primary text-primary-foreground grid place-items-center font-black text-xs shrink-0 shadow-soft">
               {{ totalCartItems }}
             </div>
             <div class="min-w-0">
-              <div class="text-xs font-bold text-foreground truncate">Table {{ table }} Order</div>
-              <div class="text-xs text-primary font-bold">
+              <div class="text-xs font-bold text-foreground truncate flex items-center gap-1">
+                <span>Table {{ table }}</span>
+                <span class="text-[10px] text-muted-foreground font-normal">• Review &gt;</span>
+              </div>
+              <div class="text-xs text-primary font-black tabular-nums">
                 ₹{{ total.toFixed(0) }}
                 <span class="text-[10px] text-muted-foreground font-normal">incl. tax</span>
               </div>
             </div>
           </button>
 
-          <!-- Right: View & Place Button -->
+          <!-- Right: Send to Kitchen Direct Action Button -->
           <Button
-            @click="mobileCartOpen = true"
-            class="gradient-primary text-primary-foreground font-bold text-xs px-4 h-10 shadow-glow rounded-xl flex items-center gap-1.5 shrink-0"
+            @click="place"
+            :disabled="cart.length === 0 || placingOrder"
+            class="gradient-primary text-primary-foreground font-bold text-xs px-4 h-10 shadow-glow rounded-xl flex items-center gap-1.5 shrink-0 active:scale-95 transition cursor-pointer"
           >
-            <ShoppingBag class="h-4 w-4" />
-            <span>Review & Place ({{ cart.length }})</span>
-            <ArrowRight class="h-3.5 w-3.5" />
+            <Send class="h-4 w-4" />
+            <span>{{ placingOrder ? 'Sending...' : 'Send to Kitchen' }}</span>
           </Button>
         </div>
       </div>
@@ -1668,16 +1709,16 @@ function formatTime(ts: string) {
         <div class="px-5 pt-3">
           <div
             v-if="isOrderPending"
-            class="p-3 rounded-xl bg-orange-500/10 border border-orange-500/30 text-orange-800 dark:text-orange-200 flex items-center justify-between gap-2 text-xs"
+            class="p-3 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-900 dark:text-amber-200 flex items-center justify-between gap-2 text-xs"
           >
             <div class="flex items-center gap-2">
-              <Clock class="h-4 w-4 shrink-0 text-orange-600 dark:text-orange-400" />
+              <Clock class="h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400" />
               <span><strong>Cooking Not Started:</strong> You can still edit dishes or quantities.</span>
             </div>
             <Button
               @click="activeOrderModalOpen = false; openUpdateOrderModal()"
               size="sm"
-              class="h-7 px-2.5 bg-orange-600 hover:bg-orange-700 text-white font-bold text-[11px] shrink-0 cursor-pointer shadow-xs"
+              class="h-7 px-2.5 bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold text-[11px] shrink-0 cursor-pointer shadow-xs"
             >
               <Edit class="h-3 w-3 mr-1" /> Edit Order
             </Button>
@@ -1701,12 +1742,12 @@ function formatTime(ts: string) {
         <!-- Items Breakdown -->
         <div class="flex-1 overflow-y-auto p-5 space-y-3 min-h-[200px]">
           <div class="text-xs font-bold uppercase tracking-wider text-muted-foreground mb-2 flex items-center justify-between">
-            <span>Ordered Dishes ({{ activeOrderForTable?.items?.length || 0 }})</span>
+            <span>Ordered Dishes ({{ consolidateOrderItems(activeOrderForTable?.items).length }})</span>
             <span>Status</span>
           </div>
 
           <div
-            v-for="(item, idx) in (activeOrderForTable?.items || [])"
+            v-for="(item, idx) in consolidateOrderItems(activeOrderForTable?.items)"
             :key="idx"
             class="flex items-center justify-between p-3 rounded-xl border border-border bg-muted/20 hover:bg-muted/40 transition gap-3"
           >
@@ -1717,7 +1758,7 @@ function formatTime(ts: string) {
               </div>
               <div class="text-xs text-muted-foreground mt-0.5">
                 ₹{{ item.price }} each · <strong class="text-foreground font-semibold">₹{{ (item.price * item.qty).toFixed(0) }}</strong>
-                <span v-if="item.note" class="text-destructive ml-2 font-medium">({{ item.note }})</span>
+                <span v-if="item.notes || item.note" class="text-destructive ml-2 font-medium">({{ item.notes || item.note }})</span>
               </div>
             </div>
             <div class="shrink-0">
@@ -1783,7 +1824,7 @@ function formatTime(ts: string) {
               v-if="isOrderPending"
               @click="activeOrderModalOpen = false; openUpdateOrderModal()"
               size="sm"
-              class="h-8 px-3.5 bg-orange-600 hover:bg-orange-700 text-white text-xs font-bold shadow-xs flex items-center gap-1 cursor-pointer"
+              class="h-8 px-3.5 bg-amber-500 hover:bg-amber-600 text-slate-950 text-xs font-bold shadow-xs flex items-center gap-1 cursor-pointer"
             >
               <Edit class="h-3.5 w-3.5" /> Update Order
             </Button>
@@ -1921,54 +1962,7 @@ function formatTime(ts: string) {
             </div>
           </div>
 
-          <!-- Add More Dishes to this Order -->
-          <div class="pt-2">
-            <button
-              v-if="!showAddDishPicker"
-              @click="showAddDishPicker = true"
-              :disabled="!hasPendingItems || savingOrderUpdate"
-              class="w-full py-2.5 px-3 rounded-xl border border-dashed border-primary/40 hover:border-primary text-primary hover:bg-primary/5 text-xs font-bold transition flex items-center justify-center gap-2 cursor-pointer disabled:opacity-40"
-            >
-              <Plus class="h-4 w-4" />
-              <span>Add Another Dish from Menu</span>
-            </button>
 
-            <!-- Expanded Dish Picker -->
-            <div v-else class="p-3.5 rounded-2xl bg-muted/30 border border-border space-y-2.5">
-              <div class="flex items-center justify-between">
-                <span class="text-xs font-bold text-foreground">Select Dish to Add:</span>
-                <button @click="showAddDishPicker = false" class="text-xs text-muted-foreground hover:text-foreground cursor-pointer">
-                  <X class="h-3.5 w-3.5" />
-                </button>
-              </div>
-
-              <div class="relative">
-                <Search class="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
-                <Input
-                  v-model="addItemSearch"
-                  placeholder="Search dish name…"
-                  class="pl-8 h-8 text-xs bg-card"
-                />
-              </div>
-
-              <div class="max-h-48 overflow-y-auto space-y-1 pr-1">
-                <div
-                  v-for="dish in addableMenuItems"
-                  :key="dish.id"
-                  class="flex items-center justify-between p-2 rounded-xl bg-card border border-border/60 hover:border-primary text-xs transition cursor-pointer"
-                  @click="addDishToEditableOrder(dish)"
-                >
-                  <div class="min-w-0 flex-1 mr-2">
-                    <div class="font-bold truncate">{{ dish.name }}</div>
-                    <div class="text-[10px] text-muted-foreground">₹{{ dish.price.toFixed(0) }} · {{ dish.categoryName }}</div>
-                  </div>
-                  <Button size="sm" class="h-6 px-2.5 text-[10px] gradient-primary text-primary-foreground font-bold rounded-lg shrink-0">
-                    <Plus class="h-3 w-3 mr-0.5" /> Add
-                  </Button>
-                </div>
-              </div>
-            </div>
-          </div>
 
           <!-- Order Kitchen Note -->
           <div class="space-y-1">

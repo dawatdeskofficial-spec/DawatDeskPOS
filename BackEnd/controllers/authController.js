@@ -1,5 +1,6 @@
 const authService = require('../services/authService');
 const { sendSuccess, sendError } = require('../utils/responseHandler');
+const { formatRoleForClient } = require('../utils/constants');
 const logger = require('../utils/logger');
 
 class AuthController {
@@ -57,9 +58,19 @@ class AuthController {
   // Get current user
   async getCurrentUser(req, res) {
     try {
-      const user = req.user || await authService.getUserById(req.user?.userId);
+      const rawUser = req.user || await authService.getUserById(req.user?.userId);
+      if (!rawUser) {
+        return sendError(res, 'User not found', 404);
+      }
 
-      return sendSuccess(res, 'User fetched successfully', user, 200);
+      const userObj = rawUser.toObject ? rawUser.toObject() : { ...rawUser };
+      const formattedUser = {
+        ...userObj,
+        id: userObj.id || userObj._id?.toString(),
+        role: formatRoleForClient(userObj.role) || (typeof userObj.role === 'string' ? userObj.role.toLowerCase() : 'restaurant_admin'),
+      };
+
+      return sendSuccess(res, 'User fetched successfully', formattedUser, 200);
     } catch (error) {
       logger.error(`Get current user error: ${error.message}`);
       return sendError(res, error.message, 400);

@@ -3,6 +3,7 @@ import { ref, onMounted, onUnmounted, computed, watch } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useAuthStore, ROLE_LABELS, ROLE_HOMES, type AppRole } from '@/stores/auth'
 import { getRestaurantById, getOrders, updateOrderStatus } from '@/lib/api'
+import { consolidateOrderItems } from '@/lib/utils'
 import {
   Bell, BellRing, ChevronDown, LogOut, Menu, Moon, Sun, Globe,
   User as UserIcon, UtensilsCrossed, X, CheckCircle2, Clock, ConciergeBell
@@ -26,6 +27,12 @@ import AlertDialogFooter from '@/components/ui/AlertDialogFooter.vue'
 import AlertDialogCancel from '@/components/ui/AlertDialogCancel.vue'
 import AlertDialogAction from '@/components/ui/AlertDialogAction.vue'
 
+import OfflineBanner from '@/components/mobile/OfflineBanner.vue'
+import AppHeader from '@/components/mobile/AppHeader.vue'
+import BottomNavigation from '@/components/mobile/BottomNavigation.vue'
+import SideDrawer from '@/components/mobile/SideDrawer.vue'
+import DawatDeskLogo from '@/components/DawatDeskLogo.vue'
+
 import { restaurantNav, adminNav } from '@/lib/nav'
 
 interface NavItem {
@@ -38,9 +45,14 @@ const props = withDefaults(defineProps<{
   role: AppRole
   nav: NavItem[]
   brand?: string
+  activeTab?: string
 }>(), {
   brand: 'DawatDesk'
 })
+
+const emit = defineEmits<{
+  (e: 'tabChange', tab: string): void
+}>()
 
 const auth = useAuthStore()
 const router = useRouter()
@@ -119,17 +131,32 @@ async function pollReadyOrders() {
   }
 }
 
+const servingNotifIds = ref<Record<string, 'serving' | 'served'>>({})
+
 async function serveOrder(orderId: string, tableNumber: number) {
+  const idStr = String(orderId)
+  if (servingNotifIds.value[idStr]) return
+  servingNotifIds.value[idStr] = 'serving'
+
   try {
     await updateOrderStatus(orderId, 'SERVED')
-    toast.success(`Table ${tableNumber} marked as served!`)
-    // Remove from list immediately
-    readyOrders.value = readyOrders.value.filter(
-      (o: any) => String(o.id || o._id) !== orderId
-    )
-    seenReadyIds.value.delete(orderId)
-    if (readyOrders.value.length === 0) hasNewNotif.value = false
+    servingNotifIds.value[idStr] = 'served'
+
+    if (typeof navigator !== 'undefined' && navigator.vibrate) {
+      try { navigator.vibrate([25, 40, 25]) } catch {}
+    }
+    toast.success(`✓ Table ${tableNumber} marked as served!`)
+
+    setTimeout(() => {
+      readyOrders.value = readyOrders.value.filter(
+        (o: any) => String(o.id || o._id) !== orderId
+      )
+      seenReadyIds.value.delete(orderId)
+      delete servingNotifIds.value[idStr]
+      if (readyOrders.value.length === 0) hasNewNotif.value = false
+    }, 450)
   } catch (err: any) {
+    delete servingNotifIds.value[idStr]
     toast.error(err.message || 'Failed to mark as served')
   }
 }
@@ -188,16 +215,14 @@ onMounted(() => {
     notifInterval = setInterval(pollReadyOrders, 4000)
   }
 
-  // Push a dummy history entry so the back button can be intercepted
-  if (props.role !== 'waiter') {
-    history.pushState({ navMenu: true }, '')
-    window.addEventListener('popstate', handlePopState)
-  }
+  // Close drawer on navigation
+  watch(() => route.path, () => {
+    open.value = false
+  })
 })
 
 onUnmounted(() => {
   clearInterval(notifInterval)
-  window.removeEventListener('popstate', handlePopState)
 })
 
 watch(dark, (newDark) => {
@@ -230,14 +255,7 @@ watch(isWaiter, (val) => {
   }
 })
 
-// ── Back button: open mobile nav menu instead of leaving ────────────────────
-function handlePopState() {
-  if (props.role !== 'waiter') {
-    open.value = true
-    // Re-push the dummy state so the back button can be caught again next time
-    history.pushState({ navMenu: true }, '')
-  }
-}
+
 
 function handleLogout() {
   open.value = false // close mobile navigation if open
@@ -285,14 +303,8 @@ function formatTime(ts: string) {
       class="hidden lg:flex w-64 bg-sidebar text-sidebar-foreground border-r border-sidebar-border flex-col shrink-0"
     >
       <div class="h-16 flex items-center justify-between px-5 border-b border-sidebar-border">
-        <router-link to="/" class="flex items-center gap-2.5">
-          <div class="h-9 w-9 rounded-[10px] overflow-hidden border border-sidebar-border shadow-sm shrink-0 bg-white">
-            <img src="/dawatdesk_logo.png" alt="DawatDesk Logo" class="h-full w-full object-cover hover:scale-105 transition-transform duration-300" />
-          </div>
-          <div class="leading-tight">
-            <div class="font-brand text-[22px] font-bold tracking-tight">{{ displayBrand }}</div>
-            <div class="text-[10px] uppercase tracking-[0.18em] text-sidebar-foreground/60">Kitchen &amp; Table</div>
-          </div>
+        <router-link to="/" class="flex items-center">
+          <DawatDeskLogo variant="auto" size="md" />
         </router-link>
       </div>
 
@@ -343,115 +355,143 @@ function formatTime(ts: string) {
       </div>
     </aside>
 
-    <!-- ── Mobile Full-Screen Navigation Menu Modal (App Experience) ──────── -->
-    <Teleport to="body">
-      <Transition name="fade">
-        <div
-          v-if="open && role !== 'waiter'"
-          class="lg:hidden fixed inset-0 z-50 bg-background flex flex-col"
-        >
-          <!-- Mobile Header -->
-          <div class="h-16 flex items-center justify-between px-5 border-b border-border bg-card/90 shrink-0">
-            <div class="flex items-center gap-2.5">
-              <div class="h-9 w-9 rounded-[10px] overflow-hidden border border-border/70 shadow-sm shrink-0 bg-white">
-                <img src="/dawatdesk_logo.png" alt="DawatDesk Logo" class="h-full w-full object-cover hover:scale-105 transition-transform duration-300" />
-              </div>
-              <div class="leading-tight">
-                <div class="font-brand text-[20px] font-bold">{{ displayBrand }}</div>
-                <div class="text-[10px] uppercase font-bold text-muted-foreground">{{ effectiveRoleLabel }}</div>
-              </div>
-            </div>
-            <button
-              @click="open = false"
-              class="h-9 w-9 rounded-xl border border-border bg-muted/40 hover:bg-muted flex items-center justify-center text-foreground cursor-pointer"
-            >
-              <X class="h-5 w-5" />
-            </button>
-          </div>
-
-          <!-- Navigation Links Grid -->
-          <div class="flex-1 overflow-y-auto p-4 space-y-2">
-            <button
-              v-for="item in effectiveNav"
-              :key="item.to"
-              @click="router.push(item.to); open = false"
-              :class="[
-                'w-full flex items-center justify-between p-3.5 rounded-2xl border text-left transition cursor-pointer',
-                (route.path === item.to || (item.to !== '/' && route.path.startsWith(item.to)))
-                  ? 'border-primary bg-primary/10 text-primary font-bold shadow-xs'
-                  : 'border-border bg-card text-foreground font-semibold hover:bg-muted/30'
-              ]"
-            >
-              <div class="flex items-center gap-3.5">
-                <div :class="['h-10 w-10 rounded-xl flex items-center justify-center shrink-0', (route.path === item.to || (item.to !== '/' && route.path.startsWith(item.to))) ? 'bg-primary text-primary-foreground' : 'bg-muted/70 text-muted-foreground']">
-                  <component :is="item.icon" class="h-5 w-5" />
-                </div>
-                <span class="text-sm font-display">{{ item.label }}</span>
-              </div>
-              <ChevronDown class="h-4 w-4 text-muted-foreground -rotate-90" />
-            </button>
-          </div>
-
-          <!-- User Profile & Logout at Bottom -->
-          <div class="p-4 border-t border-border bg-card shrink-0 flex items-center justify-between">
-            <div class="flex items-center gap-3 min-w-0 flex-1">
-              <div class="h-10 w-10 rounded-full gradient-primary grid place-items-center font-bold text-primary-foreground text-sm shrink-0">
-                {{ auth.user.name[0] }}
-              </div>
-              <div class="min-w-0 flex-1">
-                <div class="text-sm font-bold truncate text-foreground">{{ auth.user.name }}</div>
-                <div class="text-xs text-muted-foreground truncate">{{ auth.user.email }}</div>
-              </div>
-            </div>
-            <button
-              @click="handleLogout"
-              class="px-3.5 py-2 rounded-xl bg-destructive/10 text-destructive hover:bg-destructive/20 font-bold text-xs flex items-center gap-1.5 cursor-pointer ml-2"
-            >
-              <LogOut class="h-4 w-4" />
-              <span>Logout</span>
-            </button>
-          </div>
-        </div>
-      </Transition>
-    </Teleport>
+    <!-- Mobile Side Drawer (Production Mobile Experience) -->
+    <SideDrawer
+      :open="open"
+      :brand="displayBrand"
+      :role="role"
+      :role-label="effectiveRoleLabel"
+      :user="auth.user"
+      :dark="dark"
+      :is-inspecting="isInspecting"
+      @close="open = false"
+      @toggle-dark="dark = !dark"
+      @logout="handleLogout"
+    />
 
     <!-- Main -->
     <div class="flex-1 flex flex-col min-w-0">
-      <header class="h-16 border-b border-border flex items-center justify-between gap-2 px-4 lg:px-6 bg-card/80 backdrop-blur-md sticky top-0 z-50">
-        <!-- Left: Brand / Title -->
-        <div class="flex items-center gap-1.5 sm:gap-2.5 min-w-0 flex-1">
-          <!-- Waiter Direct Header Logo -->
-          <div v-if="role === 'waiter'" class="flex items-center gap-2 sm:gap-2.5 min-w-0">
-            <div class="h-8 w-8 sm:h-9 sm:w-9 rounded-[10px] overflow-hidden border border-border/70 shadow-sm shrink-0 bg-white">
-              <img src="/dawatdesk_logo.png" alt="DawatDesk Logo" class="h-full w-full object-cover hover:scale-105 transition-transform duration-300" />
+      <!-- Mobile App Header (Visible on screens < lg) -->
+      <div class="lg:hidden relative">
+        <AppHeader
+          :brand="displayBrand"
+          :role="role"
+          :role-label="effectiveRoleLabel"
+          :user="auth.user"
+          :ready-count="readyOrders.length"
+          :has-new-notif="hasNewNotif"
+          :is-inspecting="isInspecting"
+          @open-drawer="open = true"
+          @open-notif="openNotifPanel"
+          @open-profile="router.push('/profile')"
+          @logout="handleLogout"
+        />
+        <OfflineBanner />
+
+        <!-- Mobile Click-outside backdrop -->
+        <div
+          v-if="notifOpen"
+          class="fixed inset-0 z-40"
+          @click="notifOpen = false"
+        />
+
+        <!-- Mobile Notification Dropdown Box -->
+        <Transition name="notif">
+          <div
+            v-if="notifOpen"
+            class="fixed right-3 top-16 w-80 max-w-[calc(100vw-1.5rem)] max-h-[80vh] rounded-2xl bg-card border border-border shadow-2xl flex flex-col z-50 overflow-hidden"
+          >
+            <!-- Header -->
+            <div class="px-3.5 py-2.5 border-b border-border flex items-center justify-between bg-muted/40">
+              <div class="flex items-center gap-1.5">
+                <BellRing class="h-3.5 w-3.5 text-primary" />
+                <span class="font-bold text-xs uppercase tracking-wider text-foreground">Notifications</span>
+              </div>
+              <div class="flex items-center gap-1.5">
+                <span v-if="readyOrders.length > 0" class="text-[9.5px] font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 px-1.5 py-0.5 rounded-md border border-emerald-500/20">
+                  {{ readyOrders.length }} Ready
+                </span>
+                <span v-else class="text-[10px] font-semibold text-muted-foreground flex items-center gap-1">
+                  <span class="h-1.5 w-1.5 rounded-full bg-emerald-500" /> Synced
+                </span>
+                <button
+                  @click="notifOpen = false"
+                  class="text-muted-foreground hover:text-foreground text-xs p-1 rounded-md hover:bg-muted cursor-pointer"
+                >
+                  <X class="h-3.5 w-3.5" />
+                </button>
+              </div>
             </div>
-            <div class="leading-tight min-w-0">
-              <div class="font-brand text-lg sm:text-[20px] font-bold tracking-tight truncate">{{ displayBrand }}</div>
-              <div class="text-[10px] uppercase font-black tracking-widest text-primary flex items-center gap-1">
-                <span>Waiter POS</span>
-                <span class="inline-block w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+
+            <!-- Content -->
+            <div class="max-h-[360px] overflow-y-auto divide-y divide-border">
+              <!-- Ready orders for Waiters -->
+              <template v-if="isWaiter && readyOrders.length > 0">
+                <div
+                  v-for="o in readyOrders"
+                  :key="o.id || o._id"
+                  class="p-3 hover:bg-muted/20 transition group space-y-1.5"
+                >
+                  <div class="flex items-center justify-between gap-1.5">
+                    <div class="flex items-center gap-1.5 min-w-0">
+                      <span class="font-display text-xs font-bold text-foreground">Table {{ o.tableNumber }}</span>
+                      <span class="text-[10px] text-muted-foreground flex items-center gap-0.5">
+                        <Clock class="h-2.5 w-2.5" />{{ formatTime(o.createdAt) }}
+                      </span>
+                    </div>
+                    <span class="shrink-0 px-1.5 py-0.5 rounded-md bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 text-[9px] font-black uppercase">
+                      Ready
+                    </span>
+                  </div>
+                  <div class="text-[11px] text-muted-foreground line-clamp-1 leading-snug">
+                    {{ consolidateOrderItems(o.items).map((it: any) => `${it.qty}× ${it.name}`).join(', ') }}
+                  </div>
+                  <div class="flex items-center justify-end pt-0.5">
+                    <button
+                      @click="serveOrder(o.id || o._id, o.tableNumber)"
+                      :disabled="servingNotifIds[String(o.id || o._id)] !== undefined"
+                      :class="[
+                        'h-7 px-3 rounded-lg text-[11px] font-bold flex items-center gap-1 cursor-pointer transition-all duration-300 select-none active:scale-95',
+                        servingNotifIds[String(o.id || o._id)] === 'served'
+                          ? 'bg-emerald-500 text-white scale-105 ring-2 ring-emerald-400/40 shadow-xs'
+                          : servingNotifIds[String(o.id || o._id)] === 'serving'
+                          ? 'bg-emerald-700 text-white cursor-wait'
+                          : 'bg-emerald-600 hover:bg-emerald-700 text-white shadow-2xs'
+                      ]"
+                    >
+                      <CheckCircle2 class="h-3 w-3" />
+                      <span>{{ servingNotifIds[String(o.id || o._id)] === 'served' ? '✓ Served!' : 'Mark as Served' }}</span>
+                    </button>
+                  </div>
+                </div>
+              </template>
+
+              <!-- General Status / Empty State -->
+              <div v-else class="p-6 text-center text-muted-foreground space-y-1.5">
+                <div class="h-9 w-9 rounded-xl bg-primary/10 text-primary flex items-center justify-center mx-auto mb-1.5">
+                  <CheckCircle2 class="h-4.5 w-4.5 text-primary" />
+                </div>
+                <p class="text-xs font-bold text-foreground">All Caught Up</p>
+                <p class="text-[11px] text-muted-foreground max-w-[220px] mx-auto">No pending kitchen orders or alerts.</p>
               </div>
             </div>
           </div>
+        </Transition>
+      </div>
 
-          <!-- Non-waiter roles -->
-          <template v-else>
-            <button class="lg:hidden text-foreground flex-shrink-0" @click="open = true">
-              <Menu class="h-5 w-5" />
-            </button>
-            
-            <!-- Mobile/Tablet Brand (Visible when Sidebar is hidden) -->
-            <div class="lg:hidden flex items-center gap-2 min-w-0 ml-0.5">
-              <div class="font-brand text-base sm:text-lg font-bold tracking-tight truncate flex-1">{{ displayBrand }}</div>
-            </div>
-
-            <!-- Breadcrumbs (Visible when Sidebar is present) -->
-            <div class="hidden lg:flex items-center gap-2 text-sm font-medium text-muted-foreground ml-2 select-none">
-              <span class="text-foreground/40 font-semibold uppercase tracking-wider text-[11px]">{{ displayBrand }}</span>
-              <span class="text-foreground/20">/</span>
-              <span class="text-foreground font-semibold">{{ breadcrumbs.map(c => c.label).join(' / ') }}</span>
-            </div>
-          </template>
+      <!-- Desktop Header (Visible on large screens / desktops) -->
+      <header class="hidden lg:flex h-16 border-b border-border items-center justify-between gap-2 px-6 bg-card/80 backdrop-blur-md sticky top-0 z-50">
+        <!-- Left: Brand / Title -->
+        <div class="flex items-center gap-2.5 min-w-0 flex-1">
+          <router-link v-if="role === 'waiter'" to="/" class="flex items-center mr-1 shrink-0">
+            <DawatDeskLogo variant="auto" size="sm" :icon-only="true" />
+          </router-link>
+          <!-- Breadcrumbs (Visible when Sidebar is present) -->
+          <div class="flex items-center gap-2 text-sm font-medium text-muted-foreground ml-2 select-none">
+            <span class="text-foreground/40 font-semibold uppercase tracking-wider text-[11px]">{{ displayBrand }}</span>
+            <span class="text-foreground/20">/</span>
+            <span class="text-foreground font-semibold">{{ breadcrumbs.map(c => c.label).join(' / ') }}</span>
+          </div>
         </div>
 
         <div class="flex items-center gap-1 sm:gap-2 shrink-0">
@@ -464,101 +504,107 @@ function formatTime(ts: string) {
             <Moon v-else class="h-4 w-4" />
           </Button>
 
-          <!-- ── Bell Notification (Waiter only) ───────────────────────────── -->
-          <div v-if="isWaiter" class="relative">
+          <!-- ── Bell Notification Dropdown (All roles) ───────────────────────────── -->
+          <div class="relative">
             <button
               @click="openNotifPanel"
-              :class="['relative h-9 w-9 rounded-lg flex items-center justify-center transition', notifOpen ? 'bg-primary/10 text-primary' : 'hover:bg-muted text-foreground']"
-              aria-label="Kitchen notifications"
+              :class="['relative h-9 w-9 rounded-xl flex items-center justify-center transition cursor-pointer', notifOpen ? 'bg-primary/10 text-primary' : 'hover:bg-muted text-foreground']"
+              title="Notifications"
+              aria-label="Kitchen and system notifications"
             >
-              <BellRing v-if="hasNewNotif" class="h-4 w-4 text-success animate-[bell_0.5s_ease-in-out_infinite_alternate]" />
-              <Bell v-else class="h-4 w-4" />
+              <BellRing v-if="hasNewNotif || readyOrders.length > 0" class="h-4 w-4 text-emerald-500 animate-[bell_0.5s_ease-in-out_infinite_alternate]" />
+              <Bell v-else class="h-4 w-4 text-muted-foreground" />
               <!-- Red badge count -->
               <span
                 v-if="readyOrders.length > 0"
-                class="absolute -top-0.5 -right-0.5 min-w-[18px] h-[18px] px-1 rounded-full bg-destructive text-destructive-foreground text-[10px] font-bold flex items-center justify-center ring-2 ring-background"
+                class="absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 rounded-full bg-destructive text-destructive-foreground text-[10px] font-bold flex items-center justify-center ring-2 ring-card shadow-xs"
               >
                 {{ readyOrders.length }}
               </span>
             </button>
 
-            <!-- Click-outside backdrop (completely transparent, no dimming or blurring) -->
+            <!-- Click-outside backdrop -->
             <div
               v-if="notifOpen"
               class="fixed inset-0 z-40"
               @click="notifOpen = false"
             />
 
-            <!-- Notification dropdown panel -->
+            <!-- Desktop Notification Dropdown Box -->
             <Transition name="notif">
               <div
                 v-if="notifOpen"
-                class="fixed left-3 right-3 top-16 sm:absolute sm:left-auto sm:right-0 sm:top-full sm:mt-2.5 sm:w-96 max-h-[85vh] rounded-2xl bg-card border border-border shadow-2xl flex flex-col z-50 overflow-hidden"
+                class="absolute right-0 top-full mt-2 w-80 max-h-[80vh] rounded-2xl bg-card border border-border shadow-2xl flex flex-col z-50 overflow-hidden"
               >
                 <!-- Header -->
-                <div class="px-4 py-3 border-b border-border flex items-center justify-between bg-muted/30">
-                  <div class="flex items-center gap-2">
-                    <BellRing class="h-4 w-4 text-success" />
-                    <span class="font-semibold text-sm">Kitchen Ready</span>
+                <div class="px-3.5 py-2.5 border-b border-border flex items-center justify-between bg-muted/40">
+                  <div class="flex items-center gap-1.5">
+                    <BellRing class="h-3.5 w-3.5 text-primary" />
+                    <span class="font-bold text-xs uppercase tracking-wider text-foreground">Notifications</span>
                   </div>
-                  <div class="flex items-center gap-2">
-                    <span v-if="readyOrders.length > 0" class="text-xs font-bold text-success bg-success/10 px-2 py-0.5 rounded-full">
-                      {{ readyOrders.length }} waiting
+                  <div class="flex items-center gap-1.5">
+                    <span v-if="readyOrders.length > 0" class="text-[9.5px] font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 px-1.5 py-0.5 rounded-md border border-emerald-500/20">
+                      {{ readyOrders.length }} Ready
+                    </span>
+                    <span v-else class="text-[10px] font-semibold text-muted-foreground flex items-center gap-1">
+                      <span class="h-1.5 w-1.5 rounded-full bg-emerald-500" /> Synced
                     </span>
                     <button
                       @click="notifOpen = false"
-                      class="text-muted-foreground hover:text-foreground text-xs p-1"
+                      class="text-muted-foreground hover:text-foreground text-xs p-1 rounded-md hover:bg-muted cursor-pointer"
                     >
-                      <X class="h-4 w-4" />
+                      <X class="h-3.5 w-3.5" />
                     </button>
                   </div>
                 </div>
 
-                <!-- Empty state -->
-                <div v-if="readyOrders.length === 0" class="p-8 text-center text-muted-foreground">
-                  <CheckCircle2 class="h-8 w-8 mx-auto mb-2 opacity-30 text-success" />
-                  <p class="text-sm font-medium">All clear!</p>
-                  <p class="text-xs mt-0.5">No orders waiting in kitchen.</p>
-                </div>
-
-                <!-- Order cards -->
-                <div v-else class="max-h-[380px] overflow-y-auto divide-y divide-border">
-                  <div
-                    v-for="o in readyOrders"
-                    :key="o.id || o._id"
-                    class="p-3 hover:bg-muted/30 transition group"
-                  >
-                    <div class="flex items-start justify-between gap-2 mb-2">
-                      <div>
-                        <div class="font-display text-base font-bold leading-none">Table {{ o.tableNumber }}</div>
-                        <div class="text-[10px] font-mono text-muted-foreground mt-0.5 flex items-center gap-1">
-                          <Clock class="h-2.5 w-2.5" />{{ formatTime(o.createdAt) }}
-                        </div>
-                      </div>
-                      <span class="shrink-0 px-2 py-0.5 rounded-full bg-success/10 text-success border border-success/20 text-[10px] font-bold uppercase animate-pulse">
-                        READY
-                      </span>
-                    </div>
-                    <div class="text-xs text-muted-foreground mb-2.5 line-clamp-2">
-                      {{ (o.items || []).map((it: any) => `${it.qty}× ${it.name}`).join(', ') }}
-                    </div>
-                    <button
-                      @click="serveOrder(o.id || o._id, o.tableNumber)"
-                      class="w-full h-8 rounded-lg gradient-success text-success-foreground text-xs font-bold flex items-center justify-center gap-1.5 shadow-sm hover:opacity-90 transition"
+                <!-- Content -->
+                <div class="max-h-[360px] overflow-y-auto divide-y divide-border">
+                  <!-- Ready orders for Waiters -->
+                  <template v-if="isWaiter && readyOrders.length > 0">
+                    <div
+                      v-for="o in readyOrders"
+                      :key="o.id || o._id"
+                      class="p-3 hover:bg-muted/20 transition group space-y-1.5"
                     >
-                      <CheckCircle2 class="h-3.5 w-3.5" />
-                      Mark as Served
-                    </button>
+                      <div class="flex items-center justify-between gap-1.5">
+                        <div class="flex items-center gap-1.5 min-w-0">
+                          <span class="font-display text-xs font-bold text-foreground">Table {{ o.tableNumber }}</span>
+                          <span class="text-[10px] text-muted-foreground flex items-center gap-0.5">
+                            <Clock class="h-2.5 w-2.5" />{{ formatTime(o.createdAt) }}
+                          </span>
+                        </div>
+                        <span class="shrink-0 px-1.5 py-0.5 rounded-md bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 text-[9px] font-black uppercase">
+                          Ready
+                        </span>
+                      </div>
+                      <div class="text-[11px] text-muted-foreground line-clamp-1 leading-snug">
+                        {{ consolidateOrderItems(o.items).map((it: any) => `${it.qty}× ${it.name}`).join(', ') }}
+                      </div>
+                      <div class="flex items-center justify-end pt-0.5">
+                        <button
+                          @click="serveOrder(o.id || o._id, o.tableNumber)"
+                          class="h-7 px-3 rounded-lg bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white text-[11px] font-bold flex items-center gap-1 shadow-2xs cursor-pointer transition"
+                        >
+                          <CheckCircle2 class="h-3 w-3" />
+                          <span>Mark as Served</span>
+                        </button>
+                      </div>
+                    </div>
+                  </template>
+
+                  <!-- General Status / Empty State -->
+                  <div v-else class="p-6 text-center text-muted-foreground space-y-1.5">
+                    <div class="h-9 w-9 rounded-xl bg-primary/10 text-primary flex items-center justify-center mx-auto mb-1.5">
+                      <CheckCircle2 class="h-4.5 w-4.5 text-primary" />
+                    </div>
+                    <p class="text-xs font-bold text-foreground">All Caught Up</p>
+                    <p class="text-[11px] text-muted-foreground max-w-[220px] mx-auto">No pending kitchen orders or alerts.</p>
                   </div>
                 </div>
               </div>
             </Transition>
           </div>
-
-          <!-- Bell for non-waiter roles (static) -->
-          <Button v-else variant="ghost" size="icon" class="h-9 w-9 relative">
-            <Bell class="h-4 w-4" />
-          </Button>
 
           <!-- User dropdown -->
           <DropdownMenu>
@@ -640,22 +686,74 @@ function formatTime(ts: string) {
         </button>
       </div>
 
-      <main class="flex-1 p-4 lg:p-6 animate-fade-in"><slot /></main>
+      <main class="flex-1 p-3.5 sm:p-4 lg:p-6 pb-24 lg:pb-6 animate-fade-in"><slot /></main>
     </div>
+
+    <!-- Mobile Role-Personalized Bottom Navigation Bar -->
+    <BottomNavigation
+      :role="role"
+      :is-inspecting="isInspecting"
+      :active-tab="activeTab"
+      :ready-count="readyOrders.length"
+      @select-tab="$emit('tabChange', $event)"
+      @open-drawer="open = true"
+    />
 
     <!-- Sign-out Confirmation Dialog -->
     <AlertDialog :open="showLogoutConfirm" @update:open="showLogoutConfirm = $event">
-      <AlertDialogContent>
-        <AlertDialogHeader>
-          <AlertDialogTitle>Are you sure you want to sign out?</AlertDialogTitle>
-          <AlertDialogDescription>
-            You will be returned to the login screen and will need to authenticate again to access the dashboard.
-          </AlertDialogDescription>
-        </AlertDialogHeader>
-        <AlertDialogFooter>
-          <AlertDialogCancel @click="showLogoutConfirm = false">No, Cancel</AlertDialogCancel>
-          <AlertDialogAction variant="destructive" @click="executeLogout">
-            Yes, Sign Out
+      <AlertDialogContent class="sm:max-w-md p-6 rounded-3xl border border-border shadow-2xl bg-card overflow-hidden relative">
+        <!-- Top decorative ambient accent bar -->
+        <div class="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-rose-500 via-amber-500 to-rose-500" />
+
+        <div class="flex flex-col items-center text-center pt-2">
+          <!-- Icon Badge -->
+          <div class="h-14 w-14 rounded-2xl bg-rose-500/10 border border-rose-500/20 text-rose-600 dark:text-rose-400 flex items-center justify-center mb-3.5 shadow-xs">
+            <LogOut class="h-7 w-7" />
+          </div>
+
+          <AlertDialogHeader class="space-y-1 text-center sm:text-center">
+            <AlertDialogTitle class="text-lg font-display font-bold text-foreground">
+              Sign Out of DawatDesk?
+            </AlertDialogTitle>
+            <AlertDialogDescription class="text-xs text-muted-foreground leading-relaxed max-w-xs mx-auto">
+              Are you sure you want to end your current session? You will need to log in again to access the platform.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+
+          <!-- Current User Session Card Preview -->
+          <div class="w-full p-3 mt-4 rounded-2xl bg-muted/40 border border-border/70 flex items-center gap-3 text-left">
+            <div class="h-10 w-10 rounded-xl gradient-primary text-primary-foreground flex items-center justify-center font-bold text-sm shrink-0 shadow-xs">
+              {{ (auth.user?.name || (auth.user as any)?.username || 'U').charAt(0).toUpperCase() }}
+            </div>
+            <div class="min-w-0 flex-1">
+              <div class="flex items-center justify-between gap-1">
+                <span class="font-bold text-xs text-foreground truncate">
+                  {{ auth.user?.name || (auth.user as any)?.username || 'Current User' }}
+                </span>
+                <span class="text-[10px] font-semibold text-emerald-600 dark:text-emerald-400 flex items-center gap-1 shrink-0">
+                  <span class="h-1.5 w-1.5 rounded-full bg-emerald-500" /> Active
+                </span>
+              </div>
+              <div class="text-[11px] text-muted-foreground truncate mt-0.5">
+                {{ effectiveRoleLabel }} · {{ displayBrand }}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <AlertDialogFooter class="gap-2 sm:gap-2 pt-3 flex flex-col-reverse sm:flex-row w-full sm:justify-end">
+          <AlertDialogCancel
+            @click="showLogoutConfirm = false"
+            class="h-9 rounded-xl text-xs font-semibold px-4 cursor-pointer hover:bg-muted"
+          >
+            Cancel
+          </AlertDialogCancel>
+          <AlertDialogAction
+            @click="executeLogout"
+            class="h-9 rounded-xl text-xs font-bold px-4 bg-destructive text-destructive-foreground hover:bg-destructive/90 gap-1.5 cursor-pointer shadow-xs"
+          >
+            <LogOut class="h-3.5 w-3.5" />
+            <span>Yes, Sign Out</span>
           </AlertDialogAction>
         </AlertDialogFooter>
       </AlertDialogContent>

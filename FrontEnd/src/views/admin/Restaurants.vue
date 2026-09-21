@@ -3,7 +3,8 @@ import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import {
   Plus, Search, Edit3, X, Building2, Eye, Power,
-  AlertTriangle, Phone, Mail, MapPin, CheckCircle2, Lock
+  AlertTriangle, Phone, Mail, MapPin, CheckCircle2, Lock,
+  LayoutDashboard
 } from 'lucide-vue-next'
 import RoleLayout from '@/components/RoleLayout.vue'
 import PageHeader from '@/components/PageHeader.vue'
@@ -39,6 +40,12 @@ const error = ref<string | null>(null)
 const searchQuery = ref('')
 const statusFilter = ref<'ALL' | 'ACTIVE' | 'INACTIVE'>('ALL')
 
+const isDialogOpen = ref(false)
+const activeRestaurant = ref<any>(null)
+const saving = ref(false)
+
+
+
 const filteredRestaurants = computed(() => {
   let list = restaurantsList.value
 
@@ -61,10 +68,6 @@ const filteredRestaurants = computed(() => {
   }
   return list
 })
-
-const isDialogOpen = ref(false)
-const activeRestaurant = ref<any>(null)
-const saving = ref(false)
 
 // Status Toggle Confirmation
 const statusToggleConfirm = ref<{ isOpen: boolean; target: any | null; nextStatus: 'ACTIVE' | 'INACTIVE' }>({
@@ -219,7 +222,7 @@ async function handleSave() {
       subtitle="Manage branches, table capacities, and operational status."
     >
       <template #action>
-        <Button class="font-semibold shadow-2xs gap-1.5" @click="openCreateDialog">
+        <Button class="gradient-primary text-primary-foreground font-bold shadow-xs gap-1.5 rounded-xl h-9 text-xs" @click="openCreateDialog">
           <Plus class="h-4 w-4" /> Add Restaurant
         </Button>
       </template>
@@ -229,16 +232,16 @@ async function handleSave() {
       {{ error }}
     </div>
 
-    <!-- Main Restaurant Venues Table Card -->
-    <div class="rounded-xl bg-card border border-border shadow-2xs overflow-hidden">
+    <!-- Main Restaurant Venues Container Card -->
+    <div class="rounded-2xl bg-card border border-border shadow-xs overflow-hidden">
       <!-- Search & Status Filter Bar -->
-      <div class="p-4 border-b border-border flex flex-col sm:flex-row items-center justify-between gap-3 bg-muted/20">
+      <div class="p-3.5 sm:p-4 border-b border-border flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2.5 bg-muted/20">
         <div class="relative flex-1 max-w-sm w-full">
           <Search class="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
           <Input
             v-model="searchQuery"
             placeholder="Search by name, city, email..."
-            class="pl-8.5 pr-8 bg-background border-border text-xs h-8.5 rounded-lg"
+            class="pl-8.5 pr-8 bg-background border-border text-xs h-9 rounded-xl"
           />
           <button
             v-if="searchQuery"
@@ -250,175 +253,177 @@ async function handleSave() {
         </div>
 
         <!-- Filter Status Tabs -->
-        <div class="flex items-center gap-1 bg-muted/40 p-1 rounded-lg border border-border text-xs font-semibold">
+        <div class="flex items-center gap-1 bg-muted/50 p-1 rounded-xl border border-border text-xs font-semibold shrink-0">
           <button
             @click="statusFilter = 'ALL'"
-            :class="['px-3 py-1 rounded-md transition cursor-pointer', statusFilter === 'ALL' ? 'bg-card text-foreground shadow-2xs font-bold' : 'text-muted-foreground hover:text-foreground']"
+            :class="['px-3 py-1 rounded-lg transition cursor-pointer text-xs', statusFilter === 'ALL' ? 'bg-card text-foreground shadow-2xs font-bold' : 'text-muted-foreground hover:text-foreground']"
           >
             All ({{ restaurantsList.length }})
           </button>
           <button
             @click="statusFilter = 'ACTIVE'"
-            :class="['px-3 py-1 rounded-md transition cursor-pointer', statusFilter === 'ACTIVE' ? 'bg-card text-emerald-600 dark:text-emerald-400 shadow-2xs font-bold' : 'text-muted-foreground hover:text-foreground']"
+            :class="['px-3 py-1 rounded-lg transition cursor-pointer text-xs', statusFilter === 'ACTIVE' ? 'bg-card text-emerald-600 dark:text-emerald-400 shadow-2xs font-bold' : 'text-muted-foreground hover:text-foreground']"
           >
-            Active ({{ restaurantsList.filter(r => (r.status || 'ACTIVE').toUpperCase() === 'ACTIVE').length }})
+            Active ({{ restaurantsList.filter(r => (r.status || (r.isActive !== false ? 'ACTIVE' : 'INACTIVE')).toUpperCase() === 'ACTIVE').length }})
           </button>
           <button
             @click="statusFilter = 'INACTIVE'"
-            :class="['px-3 py-1 rounded-md transition cursor-pointer', statusFilter === 'INACTIVE' ? 'bg-card text-rose-600 dark:text-rose-400 shadow-2xs font-bold' : 'text-muted-foreground hover:text-foreground']"
+            :class="['px-3 py-1 rounded-lg transition cursor-pointer text-xs', statusFilter === 'INACTIVE' ? 'bg-card text-rose-600 dark:text-rose-400 shadow-2xs font-bold' : 'text-muted-foreground hover:text-foreground']"
           >
-            Inactive ({{ restaurantsList.filter(r => (r.status || '').toUpperCase() === 'INACTIVE').length }})
+            Inactive ({{ restaurantsList.filter(r => (r.status || (r.isActive !== false ? 'ACTIVE' : 'INACTIVE')).toUpperCase() === 'INACTIVE').length }})
           </button>
         </div>
       </div>
 
-      <!-- Table of Venues -->
-      <div class="overflow-x-auto">
-        <table class="w-full text-sm">
-          <thead class="bg-muted/30 text-muted-foreground text-[11px] uppercase tracking-wider font-semibold border-b border-border">
-            <tr>
-              <th class="text-left px-5 py-3 font-semibold">Restaurant</th>
-              <th class="text-left px-5 py-3 font-semibold">Location</th>
-              <th class="text-left px-5 py-3 font-semibold">Contact</th>
-              <th class="text-center px-4 py-3 font-semibold">Tables</th>
-              <th class="text-left px-4 py-3 font-semibold">Status</th>
-              <th class="text-right px-5 py-3 font-semibold">Actions</th>
-            </tr>
-          </thead>
-          <tbody class="divide-y divide-border">
-            <tr v-if="loading">
-              <td colspan="6" class="px-5 py-12 text-center text-muted-foreground text-xs">Loading restaurants...</td>
-            </tr>
-            <tr v-else-if="restaurantsList.length === 0">
-              <td colspan="6" class="px-5 py-12 text-center text-muted-foreground">
-                <Building2 class="h-8 w-8 mx-auto mb-2 opacity-30 text-primary" />
-                <p class="font-semibold text-sm text-foreground">No restaurants added yet</p>
-                <p class="text-xs mt-1">Click "Add Restaurant" to register a new venue.</p>
-              </td>
-            </tr>
-            <tr v-else-if="filteredRestaurants.length === 0">
-              <td colspan="6" class="px-5 py-10 text-center text-muted-foreground text-xs">
-                No restaurants match "{{ searchQuery }}".
-                <button @click="searchQuery = ''; statusFilter = 'ALL'" class="text-primary underline ml-1 cursor-pointer">Clear filters</button>
-              </td>
-            </tr>
+      <div class="p-4 sm:p-5">
+        <div v-if="loading" class="py-16 text-center text-muted-foreground text-xs">
+          <div class="animate-pulse space-y-2">
+            <Building2 class="h-8 w-8 mx-auto opacity-40 text-primary animate-bounce" />
+            <p class="font-medium">Loading restaurant branches...</p>
+          </div>
+        </div>
 
-            <tr
-              v-else
-              v-for="r in filteredRestaurants"
-              :key="r.id || r._id"
-              class="hover:bg-muted/20 transition"
-            >
-              <!-- Restaurant Name & Initial -->
-              <td class="px-5 py-3.5">
-                <div class="flex items-center gap-3">
-                  <div class="h-8 w-8 rounded-lg bg-primary/10 text-primary flex items-center justify-center font-bold text-xs shrink-0">
+        <div v-else-if="restaurantsList.length === 0" class="py-16 text-center text-muted-foreground">
+          <Building2 class="h-10 w-10 mx-auto mb-2 opacity-30 text-primary" />
+          <p class="font-bold text-base text-foreground">No restaurants added yet</p>
+          <p class="text-xs text-muted-foreground mt-1 max-w-sm mx-auto">Click "Add Restaurant" above to register your first restaurant venue branch.</p>
+          <Button class="mt-4 gradient-primary text-primary-foreground font-bold shadow-xs rounded-xl h-9 text-xs" @click="openCreateDialog">
+            <Plus class="h-4 w-4 mr-1" /> Add First Restaurant
+          </Button>
+        </div>
+
+        <div v-else-if="filteredRestaurants.length === 0" class="py-16 text-center text-muted-foreground text-xs">
+          <p class="font-semibold text-sm text-foreground">No restaurants found</p>
+          <p class="text-xs mt-1">No venue matches your search criteria "{{ searchQuery }}".</p>
+          <button @click="searchQuery = ''; statusFilter = 'ALL'" class="mt-3 text-primary underline cursor-pointer font-bold inline-block">
+            Clear all filters
+          </button>
+        </div>
+
+        <!-- Cards Grid -->
+        <div v-else class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+          <div
+            v-for="r in filteredRestaurants"
+            :key="r.id || r._id"
+            class="rounded-2xl border border-border bg-card/60 hover:bg-card hover:border-primary/40 hover:shadow-md transition-all duration-200 flex flex-col justify-between overflow-hidden group"
+          >
+            <!-- Card Body -->
+            <div class="p-4.5 space-y-3.5">
+              <!-- Top Header: Avatar + Name + Status Badge -->
+              <div class="flex items-start justify-between gap-3">
+                <div class="flex items-center gap-3 min-w-0">
+                  <div class="h-11 w-11 rounded-2xl gradient-primary text-primary-foreground flex items-center justify-center font-black text-base shadow-xs shrink-0 group-hover:scale-105 transition">
                     {{ (r.name || 'R').charAt(0).toUpperCase() }}
                   </div>
-                  <div>
-                    <div class="font-semibold text-xs text-foreground capitalize">
+                  <div class="min-w-0">
+                    <h3 class="font-display font-bold text-sm sm:text-base text-foreground truncate leading-tight group-hover:text-primary transition">
                       {{ r.name }}
-                    </div>
-                    <div class="text-[11px] text-muted-foreground mt-0.5">
-                      GST: {{ r.gstPercentage || 5 }}% · {{ getStaffCount(r.id || r._id) }} staff
+                    </h3>
+                    <div class="flex items-center gap-1 text-xs text-muted-foreground mt-1 truncate">
+                      <MapPin class="h-3.5 w-3.5 text-primary shrink-0" />
+                      <span class="truncate font-medium">{{ r.location || 'Main Branch' }}</span>
                     </div>
                   </div>
                 </div>
-              </td>
 
-              <!-- Location -->
-              <td class="px-5 py-3.5 text-xs text-muted-foreground">
-                <div class="flex items-center gap-1.5 truncate max-w-[180px]" :title="r.location">
-                  <MapPin class="h-3.5 w-3.5 text-primary shrink-0" />
-                  <span class="truncate">{{ r.location || 'Main Branch' }}</span>
-                </div>
-              </td>
-
-              <!-- Contact -->
-              <td class="px-5 py-3.5 text-xs text-muted-foreground">
-                <div v-if="r.phone" class="flex items-center gap-1.5 text-foreground font-medium">
-                  <Phone class="h-3 w-3 text-muted-foreground" />
-                  <span>{{ r.phone }}</span>
-                </div>
-                <div v-if="r.email" class="flex items-center gap-1.5 text-[11px] text-muted-foreground mt-0.5 truncate max-w-[160px]" :title="r.email">
-                  <Mail class="h-3 w-3 text-muted-foreground shrink-0" />
-                  <span class="truncate">{{ r.email }}</span>
-                </div>
-              </td>
-
-              <!-- Capacity -->
-              <td class="px-4 py-3.5 text-center text-xs font-medium text-foreground">
-                <Badge variant="outline" class="text-[11px] font-medium px-2 py-0.5">
-                  {{ r.maxTables || 20 }}
-                </Badge>
-              </td>
-
-              <!-- Status Badge -->
-              <td class="px-4 py-3.5">
+                <!-- Status Badge -->
                 <Badge
-                  v-if="(r.status || 'ACTIVE').toUpperCase() === 'ACTIVE'"
-                  class="bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20 text-[11px] font-medium gap-1"
+                  v-if="(r.status || (r.isActive !== false ? 'ACTIVE' : 'INACTIVE')).toUpperCase() === 'ACTIVE'"
+                  class="bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20 text-[10px] font-bold px-2 py-0.5 gap-1 shrink-0 rounded-lg"
                 >
-                  <span class="h-1.5 w-1.5 rounded-full bg-emerald-500" /> Active
+                  <span class="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" /> Active
                 </Badge>
                 <Badge
                   v-else
-                  class="bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-500/20 text-[11px] font-medium gap-1"
+                  class="bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-500/20 text-[10px] font-bold px-2 py-0.5 gap-1 shrink-0 rounded-lg"
                 >
-                  <Lock class="h-3 w-3" /> Inactive
+                  <Lock class="h-2.5 w-2.5" /> Inactive
                 </Badge>
-              </td>
+              </div>
 
-              <!-- Actions: Inspect, Edit, and Status Toggle -->
-              <td class="px-5 py-3.5 text-right">
-                <div class="flex items-center justify-end gap-1.5">
-                  <!-- Inspect Button -->
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    class="h-7.5 px-2.5 text-xs font-semibold gap-1 shadow-2xs cursor-pointer"
-                    @click="inspectRestaurant(r)"
-                    title="Open restaurant admin portal"
-                  >
-                    <Eye class="h-3.5 w-3.5 text-primary" /> Inspect
-                  </Button>
-
-                  <!-- Edit Details -->
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    class="h-7.5 w-7.5 p-0 text-muted-foreground hover:text-foreground cursor-pointer rounded-lg"
-                    @click="openEditDialog(r)"
-                    title="Edit restaurant"
-                  >
-                    <Edit3 class="h-3.5 w-3.5" />
-                  </Button>
-
-                  <!-- Status Toggle -->
-                  <button
-                    @click="promptStatusToggle(r)"
-                    :class="[
-                      'h-7.5 px-2 rounded-lg border text-xs font-medium transition flex items-center gap-1 cursor-pointer',
-                      (r.status || 'ACTIVE').toUpperCase() === 'ACTIVE'
-                        ? 'border-rose-500/20 text-rose-600 dark:text-rose-400 hover:bg-rose-500/10'
-                        : 'border-emerald-500/20 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-500/10'
-                    ]"
-                    :title="(r.status || 'ACTIVE').toUpperCase() === 'ACTIVE' ? 'Deactivate restaurant' : 'Activate restaurant'"
-                  >
-                    <Power class="h-3 w-3" />
-                    <span>{{ (r.status || 'ACTIVE').toUpperCase() === 'ACTIVE' ? 'Deactivate' : 'Activate' }}</span>
-                  </button>
+              <!-- Metrics Stats Strip -->
+              <div class="grid grid-cols-3 gap-2 py-2 px-2.5 rounded-xl bg-muted/40 border border-border/50 text-center">
+                <div>
+                  <span class="text-[10px] uppercase font-bold text-muted-foreground block">Tables</span>
+                  <span class="text-xs font-black text-foreground">{{ r.maxTables || 20 }}</span>
                 </div>
-              </td>
-            </tr>
-          </tbody>
-        </table>
+                <div class="border-x border-border/60">
+                  <span class="text-[10px] uppercase font-bold text-muted-foreground block">Staff</span>
+                  <span class="text-xs font-black text-primary">{{ getStaffCount(r.id || r._id) }}</span>
+                </div>
+                <div>
+                  <span class="text-[10px] uppercase font-bold text-muted-foreground block">GST</span>
+                  <span class="text-xs font-black text-foreground">{{ r.gstPercentage || 5 }}%</span>
+                </div>
+              </div>
+
+              <!-- Contact & Details (if present) -->
+              <div class="space-y-1.5 text-xs text-muted-foreground pt-0.5">
+                <div v-if="r.phone" class="flex items-center gap-2 truncate">
+                  <Phone class="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                  <a :href="'tel:' + r.phone" class="hover:text-primary transition font-medium text-foreground/80 truncate">
+                    {{ r.phone }}
+                  </a>
+                </div>
+                <div v-if="r.email" class="flex items-center gap-2 truncate">
+                  <Mail class="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                  <a :href="'mailto:' + r.email" class="hover:text-primary transition font-medium truncate text-foreground/80">
+                    {{ r.email }}
+                  </a>
+                </div>
+                <div v-if="r.description" class="text-[11px] text-muted-foreground line-clamp-1 italic pt-0.5">
+                  "{{ r.description }}"
+                </div>
+              </div>
+            </div>
+
+            <!-- Card Actions Footer -->
+            <div class="p-3 bg-muted/20 border-t border-border flex items-center justify-between gap-2">
+              <!-- Primary: Open Restaurant Admin Portal Viewport -->
+              <Button
+                size="sm"
+                class="flex-1 gradient-primary text-primary-foreground font-bold h-8.5 rounded-xl text-xs gap-1.5 shadow-xs hover:brightness-110 cursor-pointer"
+                @click="inspectRestaurant(r)"
+                title="Inspect and open Restaurant Admin Portal"
+              >
+                <LayoutDashboard class="h-3.5 w-3.5" />
+                <span>Restaurant Admin</span>
+              </Button>
+
+              <!-- Secondary: Edit Settings -->
+              <Button
+                size="sm"
+                variant="outline"
+                class="h-8.5 w-8.5 p-0 rounded-xl hover:bg-muted cursor-pointer shrink-0 border-border"
+                @click="openEditDialog(r)"
+                title="Edit Restaurant Details"
+              >
+                <Edit3 class="h-3.5 w-3.5 text-muted-foreground hover:text-foreground" />
+              </Button>
+
+              <!-- Secondary: Activate / Deactivate Toggle -->
+              <button
+                @click="promptStatusToggle(r)"
+                :class="[
+                  'h-8.5 px-2.5 rounded-xl border text-xs font-semibold transition flex items-center gap-1 cursor-pointer shrink-0',
+                  (r.status || (r.isActive !== false ? 'ACTIVE' : 'INACTIVE')).toUpperCase() === 'ACTIVE'
+                    ? 'border-rose-500/25 text-rose-600 dark:text-rose-400 bg-rose-500/5 hover:bg-rose-500/15'
+                    : 'border-emerald-500/25 text-emerald-600 dark:text-emerald-400 bg-emerald-500/5 hover:bg-emerald-500/15'
+                ]"
+                :title="(r.status || (r.isActive !== false ? 'ACTIVE' : 'INACTIVE')).toUpperCase() === 'ACTIVE' ? 'Deactivate Venue' : 'Activate Venue'"
+              >
+                <Power class="h-3.5 w-3.5" />
+                <span class="hidden sm:inline">{{ (r.status || (r.isActive !== false ? 'ACTIVE' : 'INACTIVE')).toUpperCase() === 'ACTIVE' ? 'Deactivate' : 'Activate' }}</span>
+              </button>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
 
     <!-- Modal: Add / Edit Restaurant -->
     <Dialog :open="isDialogOpen" @update:open="isDialogOpen = $event">
-      <DialogContent class="sm:max-w-lg">
+      <DialogContent class="sm:max-w-lg max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle class="text-base font-bold flex items-center gap-2">
             <Building2 class="h-4.5 w-4.5 text-primary" />
@@ -433,46 +438,46 @@ async function handleSave() {
           <div class="grid gap-3.5 sm:grid-cols-2">
             <div class="space-y-1 text-xs font-medium">
               <label>Restaurant Name *</label>
-              <Input v-model="formState.name" required placeholder="e.g. Savoria Downtown" class="h-8.5 text-xs" />
+              <Input v-model="formState.name" required placeholder="e.g. Savoria Downtown" class="h-9 text-xs rounded-xl" />
             </div>
             <div class="space-y-1 text-xs font-medium">
               <label>Location / City *</label>
-              <Input v-model="formState.location" required placeholder="e.g. Mumbai, Bandra West" class="h-8.5 text-xs" />
+              <Input v-model="formState.location" required placeholder="e.g. Mumbai, Bandra West" class="h-9 text-xs rounded-xl" />
             </div>
           </div>
 
           <div class="grid gap-3.5 sm:grid-cols-2">
             <div class="space-y-1 text-xs font-medium">
               <label>Phone Number *</label>
-              <Input v-model="formState.phone" required placeholder="+91 98765 43210" class="h-8.5 text-xs" />
+              <Input v-model="formState.phone" required placeholder="+91 98765 43210" class="h-9 text-xs rounded-xl" />
             </div>
             <div class="space-y-1 text-xs font-medium">
               <label>Email Address</label>
-              <Input v-model="formState.email" type="email" placeholder="contact@restaurant.com" class="h-8.5 text-xs" />
+              <Input v-model="formState.email" type="email" placeholder="contact@restaurant.com" class="h-9 text-xs rounded-xl" />
             </div>
           </div>
 
           <div class="grid gap-3.5 sm:grid-cols-2">
             <div class="space-y-1 text-xs font-medium">
               <label>Max Tables</label>
-              <Input v-model.number="formState.maxTables" type="number" min="1" max="100" class="h-8.5 text-xs" />
+              <Input v-model.number="formState.maxTables" type="number" min="1" max="100" class="h-9 text-xs rounded-xl" />
             </div>
             <div class="space-y-1 text-xs font-medium">
-              <label>GST Rate (%)</label>
-              <Input v-model.number="formState.gstPercentage" type="number" min="0" max="28" class="h-8.5 text-xs" />
+              <label>GST Tax Rate (%)</label>
+              <Input v-model.number="formState.gstPercentage" type="number" min="0" max="28" step="0.5" class="h-9 text-xs rounded-xl" />
             </div>
           </div>
 
           <div class="space-y-1 text-xs font-medium">
             <label>Description / Notes</label>
-            <Input v-model="formState.description" placeholder="Fine dining continental cuisine..." class="h-8.5 text-xs" />
+            <Input v-model="formState.description" placeholder="Optional notes regarding this branch..." class="h-9 text-xs rounded-xl" />
           </div>
 
-          <DialogFooter class="pt-3 flex items-center justify-end gap-2">
-            <Button type="button" variant="outline" size="sm" class="h-8.5 text-xs font-medium" @click="isDialogOpen = false">
+          <DialogFooter class="gap-2 sm:gap-0 pt-2">
+            <Button type="button" variant="outline" class="h-9 text-xs rounded-xl" @click="isDialogOpen = false">
               Cancel
             </Button>
-            <Button type="submit" size="sm" :disabled="saving" class="h-8.5 text-xs font-semibold shadow-2xs">
+            <Button type="submit" class="gradient-primary text-primary-foreground font-bold h-9 text-xs rounded-xl shadow-xs" :disabled="saving">
               {{ saving ? 'Saving...' : (activeRestaurant ? 'Save Changes' : 'Create Restaurant') }}
             </Button>
           </DialogFooter>
@@ -480,46 +485,36 @@ async function handleSave() {
       </DialogContent>
     </Dialog>
 
-    <!-- Alert Dialog: Deactivate / Activate Venue Confirmation -->
+    <!-- Alert Dialog: Status Toggle Confirmation -->
     <AlertDialog :open="statusToggleConfirm.isOpen" @update:open="statusToggleConfirm.isOpen = $event">
-      <AlertDialogContent class="sm:max-w-md">
+      <AlertDialogContent>
         <AlertDialogHeader>
-          <div class="h-10 w-10 rounded-xl bg-amber-500/10 text-amber-600 flex items-center justify-center mb-2 mx-auto">
-            <AlertTriangle class="h-5 w-5" />
-          </div>
-          <AlertDialogTitle class="text-center text-base font-bold">
-            {{ statusToggleConfirm.nextStatus === 'INACTIVE' ? 'Deactivate Restaurant?' : 'Activate Restaurant?' }}
+          <AlertDialogTitle class="flex items-center gap-2 text-base font-bold">
+            <AlertTriangle v-if="statusToggleConfirm.nextStatus === 'INACTIVE'" class="h-5 w-5 text-destructive" />
+            <CheckCircle2 v-else class="h-5 w-5 text-emerald-500" />
+            {{ statusToggleConfirm.nextStatus === 'INACTIVE' ? 'Deactivate Restaurant' : 'Reactivate Restaurant' }}
           </AlertDialogTitle>
-          <AlertDialogDescription class="text-center text-xs text-muted-foreground mt-2 leading-relaxed">
+          <AlertDialogDescription class="text-xs text-muted-foreground leading-relaxed pt-1">
             <template v-if="statusToggleConfirm.nextStatus === 'INACTIVE'">
               Are you sure you want to deactivate <strong>{{ statusToggleConfirm.target?.name }}</strong>?
-              <br><br>
-              Staff and customers accessing this branch will see a <em>Service Unavailable</em> notice.
+              Staff members of this branch won't be able to log in until it is reactivated.
             </template>
             <template v-else>
               Are you sure you want to reactivate <strong>{{ statusToggleConfirm.target?.name }}</strong>?
-              <br><br>
-              Operations, ordering, and staff access will be restored immediately.
+              This venue will immediately become available for operations and staff logins.
             </template>
           </AlertDialogDescription>
         </AlertDialogHeader>
-        <AlertDialogFooter class="sm:justify-center gap-2 mt-3">
-          <AlertDialogCancel size="sm" class="h-8.5 text-xs" @click="statusToggleConfirm = { isOpen: false, target: null, nextStatus: 'INACTIVE' }">
-            Cancel
-          </AlertDialogCancel>
+        <AlertDialogFooter>
+          <AlertDialogCancel class="h-8.5 text-xs">Cancel</AlertDialogCancel>
           <AlertDialogAction
-            size="sm"
             @click="confirmStatusToggle"
-            :class="[
-              'h-8.5 text-xs font-semibold',
-              statusToggleConfirm.nextStatus === 'INACTIVE' ? 'bg-destructive text-destructive-foreground hover:bg-destructive/90' : 'bg-primary text-primary-foreground'
-            ]"
+            :class="statusToggleConfirm.nextStatus === 'INACTIVE' ? 'bg-destructive text-destructive-foreground hover:bg-destructive/90 text-xs h-8.5' : 'gradient-primary text-primary-foreground text-xs h-8.5 font-bold'"
           >
-            {{ statusToggleConfirm.nextStatus === 'INACTIVE' ? 'Deactivate' : 'Activate' }}
+            {{ statusToggleConfirm.nextStatus === 'INACTIVE' ? 'Deactivate Branch' : 'Activate Branch' }}
           </AlertDialogAction>
         </AlertDialogFooter>
       </AlertDialogContent>
     </AlertDialog>
   </RoleLayout>
 </template>
-

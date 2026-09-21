@@ -290,62 +290,148 @@ function formatDate(ds: string) {
       </div>
     </div>
 
-    <div class="overflow-x-auto rounded-2xl bg-card border border-border shadow-soft">
-      <table class="min-w-full text-sm">
-        <thead class="bg-muted/40 text-muted-foreground text-xs uppercase tracking-wider">
-          <tr>
-            <th class="text-left px-5 py-3 font-medium">Name</th>
-            <th class="text-left px-5 py-3 font-medium">Email</th>
-            <th class="text-left px-5 py-3 font-medium">Role</th>
-            <th class="text-left px-5 py-3 font-medium">Restaurant</th>
-            <th class="text-left px-5 py-3 font-medium">Status</th>
-            <th class="text-left px-5 py-3 font-medium">Actions</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr v-if="loading">
-            <td colspan="6" class="px-5 py-10 text-center text-muted-foreground">Loading users…</td>
-          </tr>
-          <tr v-else-if="userColumns.length === 0">
-            <td colspan="6" class="px-5 py-10 text-center text-muted-foreground">No users found.</td>
-          </tr>
-          <tr v-else-if="filteredUsers.length === 0">
-            <td colspan="6" class="px-5 py-10 text-center text-muted-foreground">
-              No users matching "{{ searchQuery }}".
-              <button @click="searchQuery = ''; selectedRole = 'ALL'" class="text-primary underline ml-1 text-xs">Reset</button>
-            </td>
-          </tr>
-          <tr v-else v-for="user in filteredUsers" :key="user.id || (user as any)._id" class="border-t border-border hover:bg-muted/30 transition-colors">
-            <td class="px-5 py-4 font-medium flex items-center gap-3">
-              <div class="h-9 w-9 rounded-full gradient-primary grid place-items-center text-primary-foreground text-xs font-semibold">
-                {{ user.name?.[0] ?? "U" }}
+    <!-- User Directory Container -->
+    <div class="rounded-2xl bg-card border border-border shadow-soft overflow-hidden">
+      <!-- ═════════════════════════════════════════════════════════════════════ -->
+      <!-- MOBILE USER CARD LIST (< md screens / phone devices)                -->
+      <!-- ═════════════════════════════════════════════════════════════════════ -->
+      <div class="block md:hidden divide-y divide-border/60">
+        <div v-if="loading" class="p-8 text-center text-muted-foreground text-xs">
+          Loading users…
+        </div>
+        <div v-else-if="userColumns.length === 0" class="p-8 text-center text-muted-foreground text-xs">
+          No users found.
+        </div>
+        <div v-else-if="filteredUsers.length === 0" class="p-8 text-center text-muted-foreground text-xs">
+          No users matching "{{ searchQuery }}".
+          <button @click="searchQuery = ''; selectedRole = 'ALL'" class="text-primary underline ml-1 text-xs font-bold">Reset</button>
+        </div>
+        <div
+          v-else
+          v-for="user in filteredUsers"
+          :key="user.id || (user as any)._id"
+          class="p-3.5 space-y-2.5 hover:bg-muted/10 transition"
+        >
+          <!-- User Header -->
+          <div class="flex items-start justify-between gap-2">
+            <div class="flex items-center gap-2.5 min-w-0 flex-1">
+              <div class="h-9 w-9 rounded-xl gradient-primary text-primary-foreground flex items-center justify-center font-bold text-xs shrink-0 shadow-xs">
+                {{ user.name?.[0]?.toUpperCase() ?? "U" }}
               </div>
-              <div>
-                <div>{{ user.name }}</div>
-                <div class="text-[11px] text-muted-foreground">{{ formatDate(user.createdAt as string) }}</div>
+              <div class="min-w-0 flex-1">
+                <div class="font-bold text-sm text-foreground truncate leading-snug">
+                  {{ user.name }}
+                </div>
+                <div class="text-xs text-muted-foreground truncate">
+                  {{ user.email }}
+                </div>
               </div>
-            </td>
-            <td class="px-5 py-4 break-all text-muted-foreground">{{ user.email }}</td>
-            <td class="px-5 py-4">
-              <Badge variant="secondary">{{ user.role }}</Badge>
-            </td>
-            <td class="px-5 py-4 text-muted-foreground">{{ user.role === 'main_admin' ? 'All (Admin)' : user.restaurantName }}</td>
-            <td class="px-5 py-4">
-              <Badge :class="user.isActive ? 'bg-success/15 text-success' : 'bg-destructive/15 text-destructive'">
-                {{ user.isActive ? "Active" : "Inactive" }}
-              </Badge>
-            </td>
-            <td class="px-5 py-4 flex flex-wrap gap-2">
-              <Button size="sm" variant="ghost" class="h-9 px-3" @click="openEditDialog(user)">
-                <Edit3 class="h-4 w-4" />
-              </Button>
-              <Button v-if="auth.user?.id !== (user.id || (user as any)._id)" size="sm" variant="destructive" class="h-9 px-3" @click="deleteConfirm = { isOpen: true, target: user }">
-                <Trash2 class="h-4 w-4" />
-              </Button>
-            </td>
-          </tr>
-        </tbody>
-      </table>
+            </div>
+
+            <!-- Role Badge -->
+            <Badge variant="secondary" class="text-[10px] font-bold uppercase shrink-0">
+              {{ user.role }}
+            </Badge>
+          </div>
+
+          <!-- Meta Information -->
+          <div class="flex items-center justify-between text-xs text-muted-foreground pt-1">
+            <div class="flex items-center gap-1 truncate max-w-[200px]">
+              <span class="font-semibold text-foreground">Venue:</span>
+              <span class="truncate">{{ user.role === 'main_admin' ? 'All (Main Admin)' : user.restaurantName }}</span>
+            </div>
+            <Badge :class="user.isActive ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20 text-[10px] font-bold' : 'bg-destructive/10 text-destructive border-destructive/20 text-[10px] font-bold'">
+              {{ user.isActive ? "Active" : "Inactive" }}
+            </Badge>
+          </div>
+
+          <!-- Actions -->
+          <div class="pt-1.5 flex items-center justify-end gap-2 border-t border-border/40">
+            <Button
+              size="sm"
+              variant="outline"
+              class="h-8 px-3 rounded-xl text-xs font-semibold gap-1 hover:bg-muted active:scale-95 transition"
+              @click="openEditDialog(user)"
+            >
+              <Edit3 class="h-3.5 w-3.5" />
+              <span>Edit User</span>
+            </Button>
+            <Button
+              v-if="auth.user?.id !== (user.id || (user as any)._id)"
+              size="sm"
+              variant="destructive"
+              class="h-8 px-3 rounded-xl text-xs font-semibold gap-1 active:scale-95 transition"
+              @click="deleteConfirm = { isOpen: true, target: user }"
+            >
+              <Trash2 class="h-3.5 w-3.5" />
+              <span>Delete</span>
+            </Button>
+          </div>
+        </div>
+      </div>
+
+      <!-- ═════════════════════════════════════════════════════════════════════ -->
+      <!-- DESKTOP DATA TABLE (>= md screens)                                  -->
+      <!-- ═════════════════════════════════════════════════════════════════════ -->
+      <div class="hidden md:block overflow-x-auto">
+        <table class="min-w-full text-sm">
+          <thead class="bg-muted/40 text-muted-foreground text-xs uppercase tracking-wider">
+            <tr>
+              <th class="text-left px-5 py-3 font-medium">Name</th>
+              <th class="text-left px-5 py-3 font-medium">Email</th>
+              <th class="text-left px-5 py-3 font-medium">Role</th>
+              <th class="text-left px-5 py-3 font-medium">Restaurant</th>
+              <th class="text-left px-5 py-3 font-medium">Status</th>
+              <th class="text-right px-5 py-3 font-medium">Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-if="loading">
+              <td colspan="6" class="px-5 py-10 text-center text-muted-foreground">Loading users…</td>
+            </tr>
+            <tr v-else-if="userColumns.length === 0">
+              <td colspan="6" class="px-5 py-10 text-center text-muted-foreground">No users found.</td>
+            </tr>
+            <tr v-else-if="filteredUsers.length === 0">
+              <td colspan="6" class="px-5 py-10 text-center text-muted-foreground">
+                No users matching "{{ searchQuery }}".
+                <button @click="searchQuery = ''; selectedRole = 'ALL'" class="text-primary underline ml-1 text-xs font-bold">Reset</button>
+              </td>
+            </tr>
+            <tr v-else v-for="user in filteredUsers" :key="user.id || (user as any)._id" class="border-t border-border hover:bg-muted/30 transition-colors">
+              <td class="px-5 py-4 font-medium flex items-center gap-3">
+                <div class="h-9 w-9 rounded-full gradient-primary grid place-items-center text-primary-foreground text-xs font-semibold shrink-0">
+                  {{ user.name?.[0] ?? "U" }}
+                </div>
+                <div>
+                  <div class="font-bold text-foreground">{{ user.name }}</div>
+                  <div class="text-[11px] text-muted-foreground">{{ formatDate(user.createdAt as string) }}</div>
+                </div>
+              </td>
+              <td class="px-5 py-4 text-muted-foreground">{{ user.email }}</td>
+              <td class="px-5 py-4">
+                <Badge variant="secondary" class="font-semibold">{{ user.role }}</Badge>
+              </td>
+              <td class="px-5 py-4 text-muted-foreground">{{ user.role === 'main_admin' ? 'All (Admin)' : user.restaurantName }}</td>
+              <td class="px-5 py-4">
+                <Badge :class="user.isActive ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20 font-semibold' : 'bg-destructive/15 text-destructive font-semibold'">
+                  {{ user.isActive ? "Active" : "Inactive" }}
+                </Badge>
+              </td>
+              <td class="px-5 py-4 text-right">
+                <div class="flex items-center justify-end gap-1.5">
+                  <Button size="sm" variant="ghost" class="h-8.5 px-2.5 rounded-lg" @click="openEditDialog(user)">
+                    <Edit3 class="h-4 w-4 text-muted-foreground hover:text-foreground" />
+                  </Button>
+                  <Button v-if="auth.user?.id !== (user.id || (user as any)._id)" size="sm" variant="ghost" class="h-8.5 px-2.5 rounded-lg text-destructive hover:bg-destructive/10" @click="deleteConfirm = { isOpen: true, target: user }">
+                    <Trash2 class="h-4 w-4" />
+                  </Button>
+                </div>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
     </div>
 
     <Dialog :open="isDialogOpen" @update:open="isDialogOpen = $event">

@@ -13,6 +13,7 @@ import {
   getOrders, updateOrderStatus, getMenuItems, updateMenuItem,
   getCategoriesByRestaurant, type MenuCategory
 } from '@/lib/api'
+import { consolidateOrderItems } from '@/lib/utils'
 import { useAuthStore } from '@/stores/auth'
 import Button from '@/components/ui/Button.vue'
 import Badge from '@/components/ui/Badge.vue'
@@ -105,13 +106,13 @@ function isItemDone(item: any): boolean {
 async function toggleItemReady(order: any, item: any) {
   if (order.allReady) return
   const orderId = order.id || order._id
-  const itemId = item.id || item._id
+  const itemIds = (item.itemIds && item.itemIds.length > 0) ? item.itemIds : [item.id || item._id]
   const isCurrentlyReady = isItemDone(item)
   const targetStatus = isCurrentlyReady ? 'PREPARING' : 'READY'
   
-  actionLoading.value = `${orderId}_${itemId}`
+  actionLoading.value = `${orderId}_${item.id || item._id}`
   try {
-    await updateOrderStatus(orderId, targetStatus, undefined, [itemId])
+    await updateOrderStatus(orderId, targetStatus, undefined, itemIds)
     if (!isCurrentlyReady) {
       toast.success(`✓ ${item.name} marked Ready!`)
     }
@@ -130,7 +131,7 @@ async function markAllReady(order: any) {
   try {
     const isParcel = order.orderType === 'PARCEL' || Number(order.tableNumber) === 0
     const label = isParcel ? `Parcel (${order.customerName || 'Takeaway'})` : `Table ${order.tableNumber}`
-    const itemIds = (order.kitchenItems || []).map((it: any) => it.id || it._id)
+    const itemIds = (order.kitchenItems || []).flatMap((it: any) => it.itemIds?.length ? it.itemIds : [it.id || it._id])
     await updateOrderStatus(id, 'READY', undefined, itemIds.length > 0 ? itemIds : undefined)
     toast.success(`🔔 ${label} is completely READY! Waiter / Cashier notified.`)
     fetchKitchenData()
@@ -180,8 +181,8 @@ function printTicket(order: any, kitchenItems: any[]) {
   const phone = order.customerPhone ? `<div class="info-row"><span>Phone:</span> <span>${order.customerPhone}</span></div>` : '';
   const waiter = order.createdBy?.name || 'Waiter';
 
-  // Filter to only print "remaining" (uncompleted) items
-  const activeItems = kitchenItems.filter(it => !isItemDone(it));
+  // Filter to only print "remaining" (uncompleted) items, consolidated by dish
+  const activeItems = consolidateOrderItems(kitchenItems.filter(it => !isItemDone(it)));
   if (activeItems.length === 0) {
     toast.info("All items are already cooked! Nothing to print.");
     return;
@@ -429,7 +430,9 @@ const queueOrders = computed(() => {
     .map((o) => {
       const allKitchenItems = (o.items || []).filter((it: any) => it.fulfillmentOwner !== 'WAITER')
       // Only show items that still need cooking/preparation (exclude items already delivered to the table)
-      const activeKitchenItems = allKitchenItems.filter((it: any) => (it.status || '').toUpperCase() !== 'DELIVERED')
+      const rawActiveKitchenItems = allKitchenItems.filter((it: any) => (it.status || '').toUpperCase() !== 'DELIVERED')
+      // Consolidate identical dishes into a single row with total quantity
+      const activeKitchenItems = consolidateOrderItems(rawActiveKitchenItems)
       const readyItemsCount = activeKitchenItems.filter((it: any) => (it.status || '').toUpperCase() === 'READY').length
       
       const oTime = new Date(o.createdAt).getTime()
@@ -494,18 +497,85 @@ const queueOrders = computed(() => {
 
 const pendingCount = computed(() => queueOrders.value.filter((o) => (o.status || '').toLowerCase() === "pending" && !o.allReady).length)
 const prepCount    = computed(() => queueOrders.value.filter((o) => (o.status || '').toLowerCase() === "preparing" && !o.allReady).length)
-const readyCount   = computed(() => queueOrders.value.filter((o) => o.allReady || (o.status || '').toLowerCase() === "ready").length)
+const readyCount   = computed(() => queueOrders.value.filter((o) => (o.status || "").toLowerCase() === "ready" || o.allReady).length)
+
+// ── Smart Multi-Format Search Matcher for Chef Orders ─────────────────────────
+function matchChefOrderSearch(order: any, query: string): boolean {
+  if (!query || !query.trim()) return true
+  const rawQ = query.trim().toLowerCase()
+  const cleanQ = rawQ.replace(/[^a-z0-9]/g, "")
+  if (!cleanQ && !rawQ) return true
+
+  const tblStr = String(order.tableNumber ?? "").trim().toLowerCase()
+  const tblClean = tblStr.replace(/[^a-z0-9]/g, "")
+  const isParcel = order.orderType === "PARCEL" || Number(order.tableNumber) === 0
+
+  // 1. Table Number Variations (T1, T-1, Table 1, Table1, Tbl 1, T#1, 1, etc.)
+  if (!isParcel && tblClean) {
+    // Direct matches
+    if (tblStr === rawQ || tblClean === cleanQ || tblStr.includes(rawQ)) return true
+
+    // Prefix patterns: "t1", "tbl1", "table1", "tableno1"
+    const allowedPrefixes = ["t", "tbl", "table", "tableno"]
+    for (const pfx of allowedPrefixes) {
+      if (cleanQ === pfx + tblClean || (cleanQ.startsWith(pfx) && (pfx + tblClean).startsWith(cleanQ))) {
+        return true
+      }
+    }
+
+    // Natural regex extraction: "table 1", "t-1", "t 1", "tbl. 1"
+    const tableRegexMatch = rawQ.match(/^(?:table|tbl|tab|t)[-\s.#]*([0-9a-zA-Z]+)$/i)
+    if (tableRegexMatch) {
+      const extracted = tableRegexMatch[1]
+      if (tblClean === extracted || tblClean.startsWith(extracted) || tblClean.includes(extracted)) {
+        return true
+      }
+    }
+  }
+
+  // 2. Parcel / Takeaway Matching
+  if (isParcel) {
+    const parcelTerms = ["parcel", "takeaway", "take-away", "take away", "takeout", "p", "t0", "t-0", "table 0", "table0"]
+    if (parcelTerms.some(t => t.includes(rawQ) || rawQ.includes(t))) return true
+    if (["p", "parcel", "takeaway", "takeout"].some(t => t.includes(cleanQ) || cleanQ.includes(t))) return true
+  }
+
+  // 3. Customer & Waiter Match
+  const cName = String(order.customerName || "").toLowerCase()
+  const cPhone = String(order.customerPhone || "").toLowerCase()
+  const waiter = String(order.createdBy?.name || "").toLowerCase()
+  if (cName.includes(rawQ) || (cleanQ && cName.replace(/[^a-z0-9]/g, "").includes(cleanQ))) return true
+  if (cPhone.includes(rawQ)) return true
+  if (waiter.includes(rawQ)) return true
+
+  // 4. Queue Number Match (#1, Q1, Queue 1)
+  if (order.queueIndex) {
+    const qStr = String(order.queueIndex)
+    if (rawQ === `#${qStr}` || rawQ === `q${qStr}` || rawQ === `queue ${qStr}` || (rawQ.startsWith("#") && `#${qStr}`.startsWith(rawQ))) {
+      return true
+    }
+  }
+
+  // 5. Special Notes & Kitchen Instructions
+  const notes = String(order.notes || order.kitchenNote || "").toLowerCase()
+  if (notes.includes(rawQ)) return true
+
+  // 6. Dishes & Ingredients Match
+  const items = order.kitchenItems || order.items || []
+  const itemMatch = items.some((it: any) => {
+    const name = String(it.name || "").toLowerCase()
+    const itNote = String(it.specialInstructions || it.notes || "").toLowerCase()
+    return name.includes(rawQ) || (cleanQ.length >= 2 && name.replace(/[^a-z0-9]/g, "").includes(cleanQ)) || itNote.includes(rawQ)
+  })
+  if (itemMatch) return true
+
+  return false
+}
 
 const filteredQueueOrders = computed(() => {
   let list = queueOrders.value
   if (activeSearch.value.trim()) {
-    const q = activeSearch.value.toLowerCase().trim()
-    list = list.filter(o => {
-      const tbl = String(o.tableNumber || '')
-      const cName = String(o.customerName || '').toLowerCase()
-      const itemMatch = (o.kitchenItems || []).some((it: any) => (it.name || '').toLowerCase().includes(q) || (it.specialInstructions || '').toLowerCase().includes(q))
-      return tbl.includes(q) || cName.includes(q) || itemMatch
-    })
+    list = list.filter(o => matchChefOrderSearch(o, activeSearch.value))
   }
   return list
 })
@@ -514,13 +584,13 @@ const completedOrders = computed(() => {
   return orders.value
     .map((o) => ({
       ...o,
-      kitchenItems: (o.items || []).filter((it: any) => it.fulfillmentOwner !== 'WAITER'),
+      kitchenItems: consolidateOrderItems((o.items || []).filter((it: any) => it.fulfillmentOwner !== "WAITER")),
     }))
     .filter((o) => {
       const s = (o.status || "").toLowerCase()
       const p = (o.paymentStatus || "").toLowerCase()
-      const allItemsDelivered = o.kitchenItems.length > 0 && o.kitchenItems.every((it: any) => (it.status || '').toUpperCase() === 'DELIVERED')
-      return o.kitchenItems.length > 0 && (["served", "completed"].includes(s) || p === 'completed' || allItemsDelivered)
+      const allItemsDelivered = o.kitchenItems.length > 0 && o.kitchenItems.every((it: any) => (it.status || "").toUpperCase() === "DELIVERED")
+      return o.kitchenItems.length > 0 && (["served", "completed"].includes(s) || p === "completed" || allItemsDelivered)
     })
     .sort((a, b) => new Date(b.completedAt || b.servedAt || b.createdAt).getTime() - new Date(a.completedAt || a.servedAt || a.createdAt).getTime())
 })
@@ -528,17 +598,12 @@ const completedOrders = computed(() => {
 const filteredCompletedOrders = computed(() => {
   let list = completedOrders.value
   if (completedSearch.value.trim()) {
-    const q = completedSearch.value.toLowerCase().trim()
-    list = list.filter(o => {
-      const tbl = String(o.tableNumber || '')
-      const cName = String(o.customerName || '').toLowerCase()
-      const waiter = String(o.createdBy?.name || '').toLowerCase()
-      const itemMatch = (o.kitchenItems || []).some((it: any) => (it.name || '').toLowerCase().includes(q))
-      return tbl.includes(q) || `table ${tbl}`.includes(q) || cName.includes(q) || waiter.includes(q) || itemMatch
-    })
+    list = list.filter(o => matchChefOrderSearch(o, completedSearch.value))
   }
   return list
 })
+
+
 
 // Filtered Menu Items for Availability tab
 const filteredMenuItems = computed(() => {
@@ -566,7 +631,7 @@ function formatTime(ts: string) {
 </script>
 
 <template>
-  <RoleLayout role="chef" :nav="chefNav">
+  <RoleLayout role="chef" :nav="chefNav" :active-tab="view" @tab-change="view = $event as any">
     <!-- ── Top Header with Queue Stats & Tab Switcher ── -->
     <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-5">
       <div>
@@ -725,7 +790,7 @@ function formatTime(ts: string) {
             <Search class="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
             <Input
               v-model="completedSearch"
-              placeholder="Search completed tickets by table, guest, dish…"
+              placeholder="Search completed tickets by table (T1, T-1, Table 1), parcel, dish…"
               class="pl-9 pr-8 h-9 text-xs bg-muted/30"
             />
             <button
@@ -816,7 +881,7 @@ function formatTime(ts: string) {
           <Search class="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
           <Input
             v-model="activeSearch"
-            placeholder="Search queue by table, guest, or dish name…"
+            placeholder="Search queue by table (T1, T-1, Table 1), parcel, dish, note…"
             class="pl-9 pr-8 h-9 text-xs bg-muted/30"
           />
           <button
