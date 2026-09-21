@@ -67,8 +67,8 @@ async function fetchDynamicDashboardData() {
 
   try {
     const [ordRes, payRes] = await Promise.all([
-      getOrders(restaurantId, 1, 100),
-      getPayments(restaurantId, 1, 100)
+      getOrders(restaurantId, 1, 100, undefined, true),
+      getPayments(restaurantId, 1, 100, true)
     ])
     
     orders.value = ordRes.data || []
@@ -217,49 +217,86 @@ const hourlySales = computed(() => {
   return sales
 })
 
-const areaOptions = computed(() => ({
-  chart: {
-    type: 'area',
-    toolbar: { show: false },
-    zoom: { enabled: false },
-    selection: { enabled: false },
-    animations: { enabled: true, easing: 'easeinout', speed: 400 },
-    fontFamily: 'inherit',
-  },
-  stroke: { curve: 'smooth', width: 2.5, colors: ['var(--primary)'] },
-  fill: {
-    type: 'gradient',
-    gradient: { shadeIntensity: 1, opacityFrom: 0.35, opacityTo: 0, stops: [0, 100] },
-    colors: ['var(--primary)']
-  },
-  xaxis: {
-    categories: hourlySales.value.map(d => d.h),
-    axisBorder: { show: false },
-    axisTicks: { show: false },
-    labels: { style: { colors: 'var(--muted-foreground)', fontSize: '11px', fontWeight: 600 } }
-  },
-  yaxis: {
-    labels: {
-      formatter: (val: number) => `₹${Math.round(val).toLocaleString('en-IN')}`,
-      style: { colors: 'var(--muted-foreground)', fontSize: '11px', fontWeight: 600 }
-    }
-  },
-  dataLabels: { enabled: false },
-  markers: { size: 0, hover: { size: 5 } },
-  grid: { strokeDashArray: 3, borderColor: 'var(--border)' },
-  states: {
-    normal: { filter: { type: 'none' } },
-    hover: { filter: { type: 'none' } },
-    active: { allowMultipleDataPointsSelection: false, filter: { type: 'none' } }
-  },
-  tooltip: {
-    theme: 'dark',
-    x: { show: true },
-    y: {
-      formatter: (val: number) => `₹${Number(val).toLocaleString('en-IN', { minimumFractionDigits: 0 })}`
-    }
+const areaOptions = computed(() => {
+  const maxSale = Math.max(...hourlySales.value.map(d => d.sales), 0)
+  const isZeroAll = maxSale === 0
+
+  return {
+    chart: {
+      type: 'area',
+      toolbar: { show: false },
+      zoom: { enabled: false },
+      selection: { enabled: false },
+      animations: { enabled: true, easing: 'easeinout', speed: 400 },
+      fontFamily: 'inherit',
+    },
+    stroke: { curve: 'smooth', width: 2.5, colors: ['var(--primary)'] },
+    fill: {
+      type: 'gradient',
+      gradient: { shadeIntensity: 1, opacityFrom: 0.35, opacityTo: 0, stops: [0, 100] },
+      colors: ['var(--primary)']
+    },
+    xaxis: {
+      categories: hourlySales.value.map(d => d.h),
+      tickAmount: 4,
+      axisBorder: { show: false },
+      axisTicks: { show: false },
+      labels: {
+        rotate: 0,
+        rotateAlways: false,
+        hideOverlappingLabels: true,
+        style: { colors: 'var(--muted-foreground)', fontSize: '11px', fontWeight: 600 }
+      }
+    },
+    yaxis: {
+      min: 0,
+      max: isZeroAll ? 500 : undefined,
+      tickAmount: isZeroAll ? 4 : undefined,
+      forceNiceScale: true,
+      labels: {
+        formatter: (val: number) => {
+          if (val < 1 && val > 0) return ''
+          return `₹${Math.round(val).toLocaleString('en-IN')}`
+        },
+        style: { colors: 'var(--muted-foreground)', fontSize: '11px', fontWeight: 600 }
+      }
+    },
+    dataLabels: { enabled: false },
+    markers: { size: 0, hover: { size: 5 } },
+    grid: { strokeDashArray: 3, borderColor: 'var(--border)' },
+    states: {
+      normal: { filter: { type: 'none' } },
+      hover: { filter: { type: 'none' } },
+      active: { allowMultipleDataPointsSelection: false, filter: { type: 'none' } }
+    },
+    tooltip: {
+      theme: 'dark',
+      x: { show: true },
+      y: {
+        formatter: (val: number) => `₹${Number(val).toLocaleString('en-IN', { minimumFractionDigits: 0 })}`
+      }
+    },
+    responsive: [
+      {
+        breakpoint: 640,
+        options: {
+          xaxis: {
+            tickAmount: 4,
+            labels: {
+              rotate: 0,
+              rotateAlways: false,
+              hideOverlappingLabels: true,
+              style: { fontSize: '10px' }
+            }
+          },
+          yaxis: {
+            labels: { style: { fontSize: '10px' } }
+          }
+        }
+      }
+    ]
   }
-}))
+})
 
 const areaSeries = computed(() => [{
   name: 'Sales',
@@ -290,6 +327,10 @@ const pieOptions = computed(() => ({
     fontFamily: 'inherit',
   },
   labels: paymentMix.value.map(d => d.name),
+  noData: {
+    text: 'No payment data today',
+    style: { color: 'var(--muted-foreground)', fontSize: '11px' }
+  },
   dataLabels: { enabled: false },
   plotOptions: {
     pie: {
@@ -613,49 +654,6 @@ function timeSince(ts: string) {
 
         <!-- ── TAB 1: LIVE FLOOR & ACTIVE OPS ──────────────────────────────── -->
         <div v-if="activeMobileTab === 'live'" class="space-y-3">
-          <!-- Compact Quick Operations Bar -->
-          <div class="grid grid-cols-4 gap-1.5">
-            <router-link
-              to="/cashier"
-              class="p-2 rounded-xl bg-card border border-border shadow-2xs flex flex-col items-center justify-center text-center gap-1 hover:border-primary/40 transition active:scale-95"
-            >
-              <div class="h-7 w-7 rounded-lg bg-primary/10 border border-primary/20 flex items-center justify-center text-primary">
-                <Receipt class="h-3.5 w-3.5" />
-              </div>
-              <span class="text-[10px] font-bold text-foreground leading-tight">Cashier POS</span>
-            </router-link>
-
-            <router-link
-              to="/restaurant/tables"
-              class="p-2 rounded-xl bg-card border border-border shadow-2xs flex flex-col items-center justify-center text-center gap-1 hover:border-primary/40 transition active:scale-95"
-            >
-              <div class="h-7 w-7 rounded-lg bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-600 dark:text-emerald-400">
-                <Table2 class="h-3.5 w-3.5" />
-              </div>
-              <span class="text-[10px] font-bold text-foreground leading-tight">Floor Map</span>
-            </router-link>
-
-            <router-link
-              to="/chef"
-              class="p-2 rounded-xl bg-card border border-border shadow-2xs flex flex-col items-center justify-center text-center gap-1 hover:border-primary/40 transition active:scale-95"
-            >
-              <div class="h-7 w-7 rounded-lg bg-amber-500/10 border border-amber-500/20 flex items-center justify-center text-amber-600 dark:text-amber-400">
-                <ChefHat class="h-3.5 w-3.5" />
-              </div>
-              <span class="text-[10px] font-bold text-foreground leading-tight">Chef KDS</span>
-            </router-link>
-
-            <router-link
-              to="/restaurant/menu"
-              class="p-2 rounded-xl bg-card border border-border shadow-2xs flex flex-col items-center justify-center text-center gap-1 hover:border-primary/40 transition active:scale-95"
-            >
-              <div class="h-7 w-7 rounded-lg bg-purple-500/10 border border-purple-500/20 flex items-center justify-center text-purple-600 dark:text-purple-400">
-                <UtensilsCrossed class="h-3.5 w-3.5" />
-              </div>
-              <span class="text-[10px] font-bold text-foreground leading-tight">Menu 86</span>
-            </router-link>
-          </div>
-
           <!-- Floor Overview & Mini Table Matrix -->
           <div class="rounded-2xl bg-card border border-border p-3.5 shadow-sm space-y-2.5">
             <div class="flex items-center justify-between">
@@ -919,7 +917,10 @@ function timeSince(ts: string) {
           <!-- Payment mix breakdown -->
           <div class="rounded-2xl bg-card border border-border p-4 shadow-sm">
             <h3 class="font-bold text-sm text-foreground mb-2">Payment Methods</h3>
-            <div class="grid grid-cols-2 gap-3 items-center">
+            <div v-if="paymentMix.every(p => p.value === 0)" class="py-6 text-center text-xs text-muted-foreground">
+              No payment checkouts recorded yet today.
+            </div>
+            <div v-else class="grid grid-cols-2 gap-3 items-center">
               <apexchart type="donut" height="140" :options="pieOptions" :series="pieSeries" />
               <div class="space-y-2 text-xs">
                 <div v-for="(p, i) in paymentMix" :key="p.name" class="flex items-center gap-2">
@@ -1218,7 +1219,10 @@ function timeSince(ts: string) {
               </div>
               <Wallet class="h-4 w-4 text-muted-foreground" />
             </div>
-            <div class="grid grid-cols-2 gap-4 items-center min-h-[180px]">
+            <div v-if="paymentMix.every(p => p.value === 0)" class="py-12 text-center text-xs text-muted-foreground">
+              No payment checkouts recorded yet today.
+            </div>
+            <div v-else class="grid grid-cols-2 gap-4 items-center min-h-[180px]">
               <apexchart type="donut" height="180" :options="pieOptions" :series="pieSeries" />
               <div class="space-y-2">
                 <div v-for="(p, i) in paymentMix" :key="p.name" class="flex items-center gap-2 text-xs">

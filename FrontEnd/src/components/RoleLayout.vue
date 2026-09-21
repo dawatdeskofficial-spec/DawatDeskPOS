@@ -98,7 +98,7 @@ async function pollReadyOrders() {
   if (!restaurantId) return
 
   try {
-    const res = await getOrders(restaurantId, 1, 100)
+    const res = await getOrders(restaurantId, 1, 100, undefined, true)
     const orders: any[] = res.data || []
     const fresh = orders.filter((o: any) => (o.status || '').toUpperCase() === 'READY')
 
@@ -297,24 +297,24 @@ function formatTime(ts: string) {
 
 <template>
   <div v-if="auth.user" class="min-h-screen bg-background text-foreground flex">
-    <!-- Desktop Sidebar (Unchanged on Laptops & Desktops) -->
+    <!-- Desktop Sidebar (Pinned to Viewport Height) -->
     <aside
       v-if="role !== 'waiter'"
-      class="hidden lg:flex w-64 bg-sidebar text-sidebar-foreground border-r border-sidebar-border flex-col shrink-0"
+      class="hidden lg:flex w-64 bg-sidebar text-sidebar-foreground border-r border-sidebar-border flex-col shrink-0 sticky top-0 h-screen max-h-screen z-30 select-none"
     >
-      <div class="h-16 flex items-center justify-between px-5 border-b border-sidebar-border">
+      <div class="h-16 flex items-center justify-between px-5 border-b border-sidebar-border shrink-0">
         <router-link to="/" class="flex items-center">
           <DawatDeskLogo variant="auto" size="md" />
         </router-link>
       </div>
 
-      <div class="px-3 pt-4 pb-2">
+      <div class="px-3 pt-4 pb-2 shrink-0">
         <div class="px-2 text-[10px] font-semibold uppercase tracking-[0.14em] text-sidebar-foreground/45">
           {{ effectiveRoleLabel }}
         </div>
       </div>
 
-      <nav class="flex-1 px-3 pb-4 space-y-0.5 overflow-y-auto">
+      <nav class="flex-1 px-3 pb-3 space-y-0.5 overflow-y-auto min-h-0">
         <router-link
           v-for="item in effectiveNav"
           :key="item.to"
@@ -337,21 +337,55 @@ function formatTime(ts: string) {
             <span>{{ item.label }}</span>
           </a>
         </router-link>
+
+        <!-- Quick Access Profile & Sign Out right below Navigation -->
+        <div class="pt-3 mt-3 border-t border-sidebar-border/60 space-y-0.5">
+          <router-link to="/profile" custom v-slot="{ isActive }">
+            <a
+              href="/profile"
+              @click.prevent="router.push('/profile')"
+              :class="[
+                'group relative flex items-center gap-3 px-3 py-2 rounded-full text-[13.5px] font-medium transition-all',
+                route.path === '/profile'
+                  ? 'bg-primary/10 text-primary'
+                  : 'text-sidebar-foreground/75 hover:text-primary hover:bg-primary/5'
+              ]"
+            >
+              <span v-if="route.path === '/profile'" class="absolute left-0 top-1.5 bottom-1.5 w-0.5 rounded-r bg-primary" />
+              <UserIcon :class="['h-4 w-4', route.path === '/profile' ? 'text-primary' : 'text-sidebar-foreground/60 group-hover:text-primary']" />
+              <span>Profile</span>
+            </a>
+          </router-link>
+
+          <button
+            type="button"
+            @click="handleLogout"
+            class="group w-full flex items-center gap-3 px-3 py-2 rounded-full text-[13.5px] font-medium text-destructive/80 hover:text-destructive hover:bg-destructive/10 transition-all cursor-pointer text-left"
+          >
+            <LogOut class="h-4 w-4 text-destructive/70 group-hover:text-destructive transition-transform group-hover:scale-110" />
+            <span>Log Out</span>
+          </button>
+        </div>
       </nav>
 
-      <div class="p-3 border-t border-sidebar-border flex items-center justify-between">
-        <div class="flex items-center gap-2.5 p-2 rounded-lg transition min-w-0 flex-1">
+      <!-- Pinned Bottom User Card & One-Click Sign Out -->
+      <div class="p-3 border-t border-sidebar-border shrink-0 bg-sidebar/95 backdrop-blur-xs">
+        <div class="flex items-center gap-2.5 p-2 rounded-xl bg-sidebar-accent/30 hover:bg-sidebar-accent/50 transition">
           <div class="h-8 w-8 rounded-full gradient-primary grid place-items-center font-semibold text-primary-foreground text-sm shrink-0">
             {{ auth.user.name[0] }}
           </div>
           <div class="flex-1 min-w-0">
-            <div class="text-[13px] font-medium truncate text-white">{{ auth.user.name }}</div>
+            <div class="text-[13px] font-semibold truncate text-sidebar-foreground">{{ auth.user.name }}</div>
             <div class="text-[11px] text-sidebar-foreground/60 truncate">{{ auth.user.email }}</div>
           </div>
+          <button
+            @click="handleLogout"
+            title="Sign out"
+            class="p-2 text-sidebar-foreground/60 hover:text-destructive hover:bg-destructive/10 rounded-lg transition cursor-pointer shrink-0"
+          >
+            <LogOut class="h-4 w-4" />
+          </button>
         </div>
-        <button @click="handleLogout" title="Log out" class="p-2 text-sidebar-foreground/60 hover:text-destructive hover:bg-sidebar-accent/50 rounded-lg transition cursor-pointer">
-          <LogOut class="h-4 w-4" />
-        </button>
       </div>
     </aside>
 

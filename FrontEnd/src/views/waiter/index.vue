@@ -141,7 +141,7 @@ async function loadStaticData() {
   }
 }
 
-async function loadDynamicData() {
+async function loadDynamicData(silent = false) {
   if (!auth.user?.restaurantId) return
   const restaurantId =
     typeof auth.user.restaurantId === 'string'
@@ -150,8 +150,8 @@ async function loadDynamicData() {
 
   try {
     const [ordersRes, queueRes] = await Promise.all([
-      getOrders(restaurantId, 1, 100),
-      getWaitingQueue(restaurantId).catch(() => ({ data: [] })),
+      getOrders(restaurantId, 1, 100, undefined, silent),
+      getWaitingQueue(restaurantId, undefined, false, silent).catch(() => ({ data: [] })),
     ])
 
     const rawOrders = ordersRes.data || []
@@ -247,14 +247,14 @@ async function loadDynamicData() {
   } catch (err) {
     console.error(err)
   } finally {
-    loading.value = false
+    if (!silent) loading.value = false
   }
 }
 
 onMounted(() => {
   loadStaticData()
   loadDynamicData()
-  interval = setInterval(loadDynamicData, 3500)
+  interval = setInterval(() => loadDynamicData(true), 3500)
 })
 onUnmounted(() => clearInterval(interval))
 

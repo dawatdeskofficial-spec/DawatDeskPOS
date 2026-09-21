@@ -57,7 +57,23 @@ export const buildUrl = (path: string) => {
 
 import { toast } from "vue-sonner";
 
-const parseResponse = async (response: Response) => {
+export interface ApiRequestInit extends RequestInit {
+  silent?: boolean;
+}
+
+let isHandling401 = false;
+const recentToastMap = new Map<string, number>();
+
+function showDebouncedErrorToast(msg: string) {
+  if (!msg) return;
+  const now = Date.now();
+  const lastTime = recentToastMap.get(msg) || 0;
+  if (now - lastTime < 3500) return; // Debounce identical error toasts for 3.5s
+  recentToastMap.set(msg, now);
+  toast.error(msg);
+}
+
+const parseResponse = async (response: Response, silent = false) => {
   const text = await response.text();
   let data: unknown = {};
   try {
@@ -79,8 +95,22 @@ const parseResponse = async (response: Response) => {
 
     const errorMessage = typeof message === "string" ? message : JSON.stringify(message);
 
-    // Show toast notification for API errors
-    toast.error(errorMessage);
+    // Handle 401 Session Expiration cleanly without flooding error toasts
+    if (response.status === 401) {
+      if (!isHandling401) {
+        isHandling401 = true;
+        saveToken(null);
+        if (typeof window !== "undefined" && window.location.pathname !== "/login") {
+          showDebouncedErrorToast("Your session has expired. Please log in again.");
+          setTimeout(() => {
+            window.location.href = "/login";
+          }, 300);
+        }
+        setTimeout(() => { isHandling401 = false; }, 5000);
+      }
+    } else if (!silent) {
+      showDebouncedErrorToast(errorMessage);
+    }
 
     const error = new Error(errorMessage) as any;
     error.status = response.status;
@@ -98,7 +128,7 @@ export const clearClientCache = () => {
   clientCache.clear();
 };
 
-export const fetchJson = async (path: string, init: RequestInit = {}) => {
+export const fetchJson = async (path: string, init: ApiRequestInit = {}) => {
   const url = buildUrl(path);
   const headers = {
     "Content-Type": "application/json",
@@ -115,10 +145,10 @@ export const fetchJson = async (path: string, init: RequestInit = {}) => {
     headers,
   });
 
-  return parseResponse(response);
+  return parseResponse(response, init.silent);
 };
 
-export const authFetch = async (path: string, init: RequestInit = {}) => {
+export const authFetch = async (path: string, init: ApiRequestInit = {}) => {
   const token = getStoredToken();
   const headers = {
     "Content-Type": "application/json",
@@ -136,11 +166,11 @@ export const authFetch = async (path: string, init: RequestInit = {}) => {
     headers,
   });
 
-  return parseResponse(response);
+  return parseResponse(response, init.silent);
 };
 
 // Caching wrapper standardizing duplicate request prevention and short TTLs
-export const cachedAuthFetch = async (path: string, init: RequestInit = {}, ttlSeconds = 15) => {
+export const cachedAuthFetch = async (path: string, init: ApiRequestInit = {}, ttlSeconds = 15) => {
   const cacheKey = path;
   const now = Date.now();
 
@@ -209,8 +239,8 @@ export const adminCreateUser = async (data: {
 };
 
 // Restaurant APIs
-export const getRestaurants = async () => {
-  return cachedAuthFetch("/api/restaurants", { method: "GET" }, 30);
+export const getRestaurants = async (silent = false) => {
+  return cachedAuthFetch("/api/restaurants", { method: "GET", silent }, 30);
 };
 
 export const createRestaurant = async (data: {
@@ -226,8 +256,8 @@ export const createRestaurant = async (data: {
   });
 };
 
-export const getRestaurantById = async (restaurantId: string) => {
-  return cachedAuthFetch(`/api/restaurants/${restaurantId}`, { method: "GET" }, 60);
+export const getRestaurantById = async (restaurantId: string, silent = false) => {
+  return cachedAuthFetch(`/api/restaurants/${restaurantId}`, { method: "GET", silent }, 60);
 };
 
 export const updateRestaurant = async (restaurantId: string, data: Record<string, unknown>) => {
@@ -329,13 +359,14 @@ export const reorderCategories = async (restaurantId: string, categoryIds: strin
 };
 
 // Order APIs
-export const getOrders = async (restaurantId: string, page = 1, limit = 20, status?: string) => {
+export const getOrders = async (restaurantId: string, page = 1, limit = 20, status?: string, silent = false) => {
   let url = `/api/orders/restaurant/${restaurantId}?page=${page}&limit=${limit}`;
   if (status) {
     url += `&status=${status}`;
   }
   return cachedAuthFetch(url, {
     method: "GET",
+    silent,
   }, 2.5);
 };
 
@@ -450,9 +481,10 @@ export const createPayment = async (data: {
   });
 };
 
-export const getPayments = async (restaurantId: string, page = 1, limit = 1000) => {
+export const getPayments = async (restaurantId: string, page = 1, limit = 1000, silent = false) => {
   return cachedAuthFetch(`/api/payments/restaurant/${restaurantId}?page=${page}&limit=${limit}`, {
     method: "GET",
+    silent,
   }, 2.5);
 };
 
@@ -464,14 +496,15 @@ export const refundPayment = async (paymentId: string, reason: string) => {
 };
 
 // User/Staff APIs
-export const getUsersByRestaurant = async (restaurantId: string, page = 1, limit = 20) => {
+export const getUsersByRestaurant = async (restaurantId: string, page = 1, limit = 20, silent = false) => {
   return cachedAuthFetch(`/api/users/restaurant/${restaurantId}?page=${page}&limit=${limit}`, {
     method: "GET",
+    silent,
   }, 15);
 };
 
-export const getAllUsers = async (page = 1, limit = 20) => {
-  return cachedAuthFetch(`/api/users?page=${page}&limit=${limit}`, { method: "GET" }, 15);
+export const getAllUsers = async (page = 1, limit = 20, silent = false) => {
+  return cachedAuthFetch(`/api/users?page=${page}&limit=${limit}`, { method: "GET", silent }, 15);
 };
 
 export const deactivateUser = async (userId: string) => {
@@ -528,12 +561,12 @@ export type WaitingQueueEntry = {
   updatedAt: string;
 };
 
-export const getWaitingQueue = async (restaurantId: string, status?: string, all = false) => {
+export const getWaitingQueue = async (restaurantId: string, status?: string, all = false, silent = false) => {
   let url = `/api/waiting-queue/restaurant/${restaurantId}?all=${all}`;
   if (status) {
     url += `&status=${status}`;
   }
-  return cachedAuthFetch(url, { method: "GET" }, 3);
+  return cachedAuthFetch(url, { method: "GET", silent }, 3);
 };
 
 export const addToWaitingQueue = async (data: {
@@ -581,32 +614,32 @@ export const prefetchDashboardData = (user: BackendUser) => {
   try {
     const role = user.role?.toLowerCase();
     if (role === 'waiter' && restaurantId) {
-      getRestaurantById(restaurantId);
+      getRestaurantById(restaurantId, true);
       getMenuItems(restaurantId);
       getCategoriesByRestaurant(restaurantId);
-      getOrders(restaurantId, 1, 100);
+      getOrders(restaurantId, 1, 100, undefined, true);
       getWaitingQueue(restaurantId);
     } else if (role === 'cashier' && restaurantId) {
-      getRestaurantById(restaurantId);
+      getRestaurantById(restaurantId, true);
       getMenuItems(restaurantId, 1, 500);
       getCategoriesByRestaurant(restaurantId);
-      getOrders(restaurantId, 1, 100);
-      getPayments(restaurantId, 1, 50);
+      getOrders(restaurantId, 1, 100, undefined, true);
+      getPayments(restaurantId, 1, 50, true);
       getWaitingQueue(restaurantId, undefined, false);
     } else if (role === 'chef' && restaurantId) {
       getMenuItems(restaurantId, 1, 500);
       getCategoriesByRestaurant(restaurantId);
-      getOrders(restaurantId, 1, 100);
+      getOrders(restaurantId, 1, 100, undefined, true);
     } else if (role === 'restaurant_admin' && restaurantId) {
-      getRestaurantById(restaurantId);
-      getUsersByRestaurant(restaurantId, 1, 100);
-      getOrders(restaurantId, 1, 100);
-      getPayments(restaurantId, 1, 100);
+      getRestaurantById(restaurantId, true);
+      getUsersByRestaurant(restaurantId, 1, 100, true);
+      getOrders(restaurantId, 1, 100, undefined, true);
+      getPayments(restaurantId, 1, 100, true);
     } else if (role === 'main_admin') {
-      getRestaurants();
-      getAllUsers(1, 1000);
-      getOrders('all', 1, 500);
-      getPayments('all', 1, 500);
+      getRestaurants(true);
+      getAllUsers(1, 1000, true);
+      getOrders('all', 1, 500, undefined, true);
+      getPayments('all', 1, 500, true);
     }
   } catch {
     // Non-blocking prefetch; errors handled on component mount

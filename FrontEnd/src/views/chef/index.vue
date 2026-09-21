@@ -67,19 +67,19 @@ async function fetchStaticKitchenData() {
   }
 }
 
-async function fetchKitchenData() {
+async function fetchKitchenData(silent = false) {
   if (!auth.user?.restaurantId) return
   const restaurantId = typeof auth.user.restaurantId === 'string' 
     ? auth.user.restaurantId 
     : (auth.user.restaurantId as any).id || (auth.user.restaurantId as any)._id
 
   try {
-    const ordersRes = await getOrders(restaurantId, 1, 100)
+    const ordersRes = await getOrders(restaurantId, 1, 100, undefined, silent)
     orders.value = ordersRes.data || []
   } catch (err) {
     console.error("Failed to load dynamic kitchen data", err)
   } finally {
-    loading.value = false
+    if (!silent) loading.value = false
   }
 }
 
@@ -88,7 +88,7 @@ onMounted(() => {
   fetchKitchenData()
   interval = setInterval(() => {
     tick.value++
-    fetchKitchenData()
+    fetchKitchenData(true)
   }, 5000)
 })
 

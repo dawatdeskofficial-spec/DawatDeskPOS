@@ -393,20 +393,24 @@ const staffPerformance = computed(() => {
 // ── Dynamic Trend Aggregation (Real Month-wise & Daily Breakdown) ──────────
 const dynamicTrendData = computed(() => {
   const completed = filteredPayments.value.filter(p => p.status === 'COMPLETED')
+  const now = new Date()
 
   if (selectedRange.value === 'today' || selectedRange.value === 'yesterday') {
+    // 2-hour interval time slots covering the full 24-hour cycle
     const slots = [
-      { label: '8 AM', startHr: 8, endHr: 10 },
-      { label: '10 AM', startHr: 10, endHr: 12 },
-      { label: '12 PM', startHr: 12, endHr: 14 },
-      { label: '2 PM', startHr: 14, endHr: 16 },
-      { label: '4 PM', startHr: 16, endHr: 18 },
-      { label: '6 PM', startHr: 18, endHr: 20 },
-      { label: '8 PM', startHr: 20, endHr: 22 },
-      { label: '10 PM+', startHr: 22, endHr: 24 }
+      { label: '8 AM', fullLabel: 'Early Morning - 8:00 AM', startHr: 0, endHr: 8 },
+      { label: '10 AM', fullLabel: '8:00 AM - 10:00 AM', startHr: 8, endHr: 10 },
+      { label: '12 PM', fullLabel: '10:00 AM - 12:00 PM', startHr: 10, endHr: 12 },
+      { label: '2 PM', fullLabel: '12:00 PM - 2:00 PM', startHr: 12, endHr: 14 },
+      { label: '4 PM', fullLabel: '2:00 PM - 4:00 PM', startHr: 14, endHr: 16 },
+      { label: '6 PM', fullLabel: '4:00 PM - 6:00 PM', startHr: 16, endHr: 18 },
+      { label: '8 PM', fullLabel: '6:00 PM - 8:00 PM', startHr: 18, endHr: 20 },
+      { label: '10 PM', fullLabel: '8:00 PM - 10:00 PM', startHr: 20, endHr: 22 },
+      { label: 'Close', fullLabel: '10:00 PM - Midnight', startHr: 22, endHr: 24 }
     ]
 
     const categories = slots.map(s => s.label)
+    const fullLabels = slots.map(s => s.fullLabel)
     const revenues = slots.map(slot => {
       const slotSum = completed.reduce((sum, p) => {
         const d = new Date(p.paidAt || p.createdAt)
@@ -419,17 +423,21 @@ const dynamicTrendData = computed(() => {
       return Math.round(slotSum * 100) / 100
     })
 
-    return { categories, revenues }
+    return { categories, fullLabels, revenues }
   }
 
   if (selectedRange.value === '7days') {
-    const days: string[] = []
+    const categories: string[] = []
+    const fullLabels: string[] = []
     const revenues: number[] = []
+
     for (let i = 6; i >= 0; i--) {
       const d = new Date()
       d.setDate(d.getDate() - i)
-      const dayLabel = d.toLocaleDateString('en-US', { weekday: 'short', month: 'numeric', day: 'numeric' })
-      days.push(dayLabel)
+      const dayLabel = d.toLocaleDateString('en-US', { weekday: 'short', day: 'numeric' })
+      const fullLabel = d.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric', year: 'numeric' })
+      categories.push(dayLabel)
+      fullLabels.push(fullLabel)
 
       const start = new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime()
       const end = start + 24 * 60 * 60 * 1000
@@ -443,35 +451,47 @@ const dynamicTrendData = computed(() => {
       }, 0)
       revenues.push(Math.round(daySum))
     }
-    return { categories: days, revenues }
+    return { categories, fullLabels, revenues }
   }
 
-  // Month-wise breakdown: Generates each day of the selected month
+  // Month-wise breakdown: Generates days of the selected month
   if (selectedRange.value === 'month' || selectedRange.value === 'last_month' || selectedRange.value === 'custom_month') {
-    let targetYear = new Date().getFullYear()
-    let targetMonth = new Date().getMonth()
+    let targetYear = now.getFullYear()
+    let targetMonth = now.getMonth()
+    let isCurrentMonth = true
 
     if (selectedRange.value === 'last_month') {
       const lm = new Date()
       lm.setMonth(lm.getMonth() - 1)
       targetYear = lm.getFullYear()
       targetMonth = lm.getMonth()
+      isCurrentMonth = false
     } else if (selectedRange.value === 'custom_month' && selectedMonthStr.value) {
       const [y, m] = selectedMonthStr.value.split('-').map(Number)
       targetYear = y
       targetMonth = m - 1
+      isCurrentMonth = (targetYear === now.getFullYear() && targetMonth === now.getMonth())
     }
 
-    const numDays = new Date(targetYear, targetMonth + 1, 0).getDate()
+    const totalDaysInMonth = new Date(targetYear, targetMonth + 1, 0).getDate()
+    // For current month, display from day 1 up to today (at least 3 days for chart interpolation)
+    const numDays = isCurrentMonth 
+      ? Math.max(Math.min(totalDaysInMonth, now.getDate()), 3) 
+      : totalDaysInMonth
+
+    const monthShortNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+    const monthName = monthShortNames[targetMonth]
+
     const categories: string[] = []
+    const fullLabels: string[] = []
     const revenues: number[] = []
 
     for (let day = 1; day <= numDays; day++) {
-      const dayDate = new Date(targetYear, targetMonth, day)
       const dayStart = new Date(targetYear, targetMonth, day, 0, 0, 0, 0).getTime()
       const dayEnd = new Date(targetYear, targetMonth, day, 23, 59, 59, 999).getTime()
 
       categories.push(`${day}`)
+      fullLabels.push(`${day} ${monthName} ${targetYear}`)
 
       const dayTotal = completed.reduce((sum, p) => {
         const pTime = new Date(p.paidAt || p.createdAt).getTime()
@@ -484,19 +504,35 @@ const dynamicTrendData = computed(() => {
       revenues.push(Math.round(dayTotal))
     }
 
-    return { categories, revenues }
+    return { categories, fullLabels, revenues }
   }
 
-  // All Time: Group by past 6-12 Months
+  // All Time: Group by past months up to 12 months
   const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
   const categories: string[] = []
+  const fullLabels: string[] = []
   const revenues: number[] = []
 
-  for (let i = 5; i >= 0; i--) {
+  let monthsCount = 6
+  if (completed.length > 0) {
+    const earliest = completed.reduce((min, p) => {
+      const t = new Date(p.paidAt || p.createdAt).getTime()
+      return t < min ? t : min
+    }, Infinity)
+    if (earliest !== Infinity) {
+      const earliestDate = new Date(earliest)
+      const diffMonths = (now.getFullYear() - earliestDate.getFullYear()) * 12 + (now.getMonth() - earliestDate.getMonth()) + 1
+      monthsCount = Math.min(Math.max(diffMonths, 6), 12)
+    }
+  }
+
+  for (let i = monthsCount - 1; i >= 0; i--) {
     const d = new Date()
     d.setMonth(d.getMonth() - i)
-    const mLabel = `${monthNames[d.getMonth()]} ${d.getFullYear().toString().slice(-2)}`
+    const mLabel = `${monthNames[d.getMonth()]} '${d.getFullYear().toString().slice(-2)}`
+    const fullLabel = `${monthNames[d.getMonth()]} ${d.getFullYear()}`
     categories.push(mLabel)
+    fullLabels.push(fullLabel)
 
     const mStart = new Date(d.getFullYear(), d.getMonth(), 1, 0, 0, 0).getTime()
     const mEnd = new Date(d.getFullYear(), d.getMonth() + 1, 0, 23, 59, 59).getTime()
@@ -511,73 +547,128 @@ const dynamicTrendData = computed(() => {
     revenues.push(Math.round(mTotal))
   }
 
-  return { categories, revenues }
+  return { categories, fullLabels, revenues }
 })
 
 // Charts Options & Series
-const salesTrendOptions = computed(() => ({
-  chart: {
-    type: 'area',
-    toolbar: { show: false },
-    zoom: { enabled: false },
-    selection: { enabled: false },
-    fontFamily: 'inherit',
-    parentHeightOffset: 0
-  },
-  colors: ['#f97316'],
-  stroke: { curve: 'smooth', width: 2.5 },
-  fill: {
-    type: 'gradient',
-    gradient: {
-      shadeIntensity: 1,
-      opacityFrom: 0.35,
-      opacityTo: 0.02,
-      stops: [0, 100]
-    }
-  },
-  xaxis: {
-    categories: dynamicTrendData.value.categories,
-    axisBorder: { show: false },
-    axisTicks: { show: false },
-    labels: {
-      offsetY: 2,
-      style: {
-        colors: '#94a3b8',
-        fontSize: '11px',
-        fontWeight: 500
+const salesTrendOptions = computed(() => {
+  const maxRevenue = Math.max(...(dynamicTrendData.value.revenues || [0]), 0)
+  const isZeroAll = maxRevenue === 0
+  const totalCategories = dynamicTrendData.value.categories.length
+
+  return {
+    chart: {
+      type: 'area',
+      toolbar: { show: false },
+      zoom: { enabled: false },
+      selection: { enabled: false },
+      fontFamily: 'inherit',
+      parentHeightOffset: 0
+    },
+    colors: ['#f97316'],
+    stroke: { curve: 'smooth', width: 2.5 },
+    fill: {
+      type: 'gradient',
+      gradient: {
+        shadeIntensity: 1,
+        opacityFrom: 0.35,
+        opacityTo: 0.02,
+        stops: [0, 100]
       }
-    }
-  },
-  yaxis: {
-    labels: {
-      formatter: (val: number) => `₹${Math.round(val).toLocaleString('en-IN')}`,
-      style: {
-        colors: '#94a3b8',
-        fontSize: '11px',
-        fontWeight: 500
+    },
+    xaxis: {
+      categories: dynamicTrendData.value.categories,
+      tickAmount: totalCategories > 10 ? 6 : undefined,
+      axisBorder: { show: false },
+      axisTicks: { show: false },
+      labels: {
+        rotate: 0,
+        rotateAlways: false,
+        hideOverlappingLabels: true,
+        showDuplicates: false,
+        trim: false,
+        offsetY: 2,
+        style: {
+          colors: '#94a3b8',
+          fontSize: '11px',
+          fontWeight: 500
+        }
       }
-    }
-  },
-  dataLabels: { enabled: false },
-  markers: { size: 0, hover: { size: 4 } },
-  grid: {
-    strokeDashArray: 3,
-    borderColor: 'rgba(148, 163, 184, 0.15)',
-    padding: { left: 10, right: 15, bottom: 5, top: 0 }
-  },
-  states: {
-    normal: { filter: { type: 'none' } },
-    hover: { filter: { type: 'none' } },
-    active: { allowMultipleDataPointsSelection: false, filter: { type: 'none' } }
-  },
-  tooltip: {
-    theme: 'dark',
-    x: { show: true },
-    y: {
-      formatter: (val: number) => `₹${val.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`
-    }
+    },
+    yaxis: {
+      min: 0,
+      max: isZeroAll ? 1000 : undefined,
+      tickAmount: isZeroAll ? 4 : undefined,
+      forceNiceScale: true,
+      labels: {
+        formatter: (val: number) => {
+          if (val < 1 && val > 0) return ''
+          return `₹${Math.round(val).toLocaleString('en-IN')}`
+        },
+        style: {
+          colors: '#94a3b8',
+          fontSize: '11px',
+          fontWeight: 500
+        }
+      }
+    },
+    dataLabels: { enabled: false },
+    markers: { size: 0, hover: { size: 4 } },
+    grid: {
+      strokeDashArray: 3,
+      borderColor: 'rgba(148, 163, 184, 0.15)',
+      padding: { left: 10, right: 15, bottom: 5, top: 0 }
+    },
+    states: {
+      normal: { filter: { type: 'none' } },
+      hover: { filter: { type: 'none' } },
+      active: { allowMultipleDataPointsSelection: false, filter: { type: 'none' } }
+    },
+    tooltip: {
+      theme: 'dark',
+      x: {
+        formatter: (_val: any, opts: any) => {
+          const idx = opts?.dataPointIndex
+          if (idx !== undefined && dynamicTrendData.value.fullLabels?.[idx]) {
+            return dynamicTrendData.value.fullLabels[idx]
+          }
+          return String(_val || '')
+        }
+      },
+      y: {
+        formatter: (val: number) => `₹${Number(val || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}`
+      }
+    },
+    responsive: [
+      {
+        breakpoint: 640,
+        options: {
+          chart: {
+            height: 250
+          },
+          xaxis: {
+            tickAmount: 5,
+            labels: {
+              rotate: 0,
+              rotateAlways: false,
+              hideOverlappingLabels: true,
+              style: {
+                fontSize: '10px'
+              }
+            }
+          },
+          yaxis: {
+            labels: {
+              style: {
+                fontSize: '10px'
+              }
+            }
+          }
+        }
+      }
+    ]
   }
-}))
+})
 
 const salesTrendSeries = computed(() => [{
   name: 'Revenue',
@@ -594,6 +685,10 @@ const paymentDonutOptions = computed(() => {
       parentHeightOffset: 0
     },
     labels: paymentMethodBreakdown.value.map(p => p.name),
+    noData: {
+      text: 'No settlements recorded',
+      style: { color: '#94a3b8', fontSize: '12px' }
+    },
     colors: ['#3b82f6', '#10b981', '#8b5cf6'],
     dataLabels: { enabled: false },
     plotOptions: {
@@ -952,7 +1047,11 @@ function formatDateTime(dateStr: string) {
           <h3 class="text-base font-bold mb-1">Settlement Modes</h3>
           <p class="text-xs text-muted-foreground mb-2">Payment volume by tender type</p>
           <div class="min-h-[220px] grid place-items-center">
-            <apexchart type="donut" height="220" :options="paymentDonutOptions" :series="paymentDonutSeries" />
+            <div v-if="paymentDonutSeries.every(v => v === 0)" class="py-12 flex flex-col items-center justify-center text-center text-xs text-muted-foreground gap-1.5">
+              <Wallet class="h-8 w-8 text-muted-foreground/30 mb-1" />
+              <span>No completed settlements for this timeframe</span>
+            </div>
+            <apexchart v-else type="donut" height="220" :options="paymentDonutOptions" :series="paymentDonutSeries" />
           </div>
         </div>
 

@@ -44,3 +44,7 @@ scratch*.js
 test-date.js
 testLogin.js
 fix_data.js
+check_order.js
+backend_log.txt
+*.txt
+*_copy.txt

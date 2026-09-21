@@ -62,10 +62,10 @@ async function loadNetworkData(silent = false) {
 
   try {
     const [restRes, usersRes, ordersRes, paymentsRes] = await Promise.all([
-      getRestaurants(),
-      getAllUsers(1, 1000),
-      getOrders('all', 1, 500).catch(() => ({ data: [] })),
-      getPayments('all', 1, 500).catch(() => ({ data: [] })),
+      getRestaurants(silent),
+      getAllUsers(1, 1000, silent),
+      getOrders('all', 1, 500, undefined, silent).catch(() => ({ data: [] })),
+      getPayments('all', 1, 500, silent).catch(() => ({ data: [] })),
     ])
 
     allUsers.value = usersRes.data || []
@@ -153,7 +153,9 @@ async function loadNetworkData(silent = false) {
     allOrders.value = ordersAcc.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
     allPayments.value = paymentsAcc.sort((a, b) => new Date(b.paidAt || b.createdAt).getTime() - new Date(a.paidAt || a.createdAt).getTime())
   } catch (err: any) {
-    toast.error(err.message || 'Failed to sync restaurant network data')
+    if (!silent) {
+      toast.error(err.message || 'Failed to sync restaurant network data')
+    }
   } finally {
     loading.value = false
     syncing.value = false

@@ -156,7 +156,7 @@ async function fetchDynamicTablesData(silent = false) {
   if (!restaurantId.value) return
   if (!silent) loading.value = true
   try {
-    const ordersRes = await getOrders(restaurantId.value, 1, 100)
+    const ordersRes = await getOrders(restaurantId.value, 1, 100, undefined, silent)
     orders.value = ordersRes.data || []
   } catch (err: any) {
     console.error('Failed to load floor tables dynamic configuration', err)

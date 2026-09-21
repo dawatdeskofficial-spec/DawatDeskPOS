@@ -3,7 +3,7 @@ import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import {
   Banknote, CreditCard, Download, Receipt, Smartphone, CheckCircle2,
   IndianRupee, ArrowLeftRight, Pencil, Trash2, Tag, X, Save,
-  Plus, Minus, Search, ShoppingBag, UtensilsCrossed, Users, Clock,
+  Plus, Minus, Search, ShoppingBag, Utensils, UtensilsCrossed, Users, Clock,
   Phone, Bell, UserPlus, Package, CheckCircle, Check, ArrowLeft, ArrowRight, ChevronRight
 } from 'lucide-vue-next'
 import { toast } from 'vue-sonner'
@@ -100,6 +100,7 @@ const newQueueNotes       = ref('')
 
 // ── Parcel / Takeaway State ───────────────────────────────────────────────────
 const parcelDialogOpen    = ref(false)
+const parcelActiveTab     = ref<'menu' | 'cart'>('menu')
 const parcelCustomerName  = ref('')
 const parcelCustomerPhone = ref('')
 const parcelNotes         = ref('')
@@ -107,6 +108,16 @@ const parcelCart          = ref<ParcelCartItem[]>([])
 const parcelMenuSearch    = ref('')
 const parcelCategory      = ref('All')
 const parcelSubmitting    = ref(false)
+
+const parcelCartTotalQty = computed(() => {
+  return parcelCart.value.reduce((sum, item) => sum + item.quantity, 0)
+})
+
+watch(parcelDialogOpen, (isOpen) => {
+  if (isOpen) {
+    parcelActiveTab.value = 'menu'
+  }
+})
 
 let interval: any
 
@@ -131,7 +142,7 @@ async function fetchStaticDashboard() {
   }
 }
 
-async function fetchDashboard() {
+async function fetchDashboard(silent = false) {
   if (!auth.user?.restaurantId) return
   const restaurantId =
     typeof auth.user.restaurantId === 'string'
@@ -139,9 +150,9 @@ async function fetchDashboard() {
       : (auth.user.restaurantId as any).id || (auth.user.restaurantId as any)._id
   try {
     const [ordRes, payRes, queueRes] = await Promise.all([
-      getOrders(restaurantId, 1, 100),
-      getPayments(restaurantId, 1, 50),
-      getWaitingQueue(restaurantId, undefined, false),
+      getOrders(restaurantId, 1, 100, undefined, silent),
+      getPayments(restaurantId, 1, 50, silent),
+      getWaitingQueue(restaurantId, undefined, false, silent),
     ])
     orders.value       = ordRes.data || []
     transactions.value = payRes.data || []
@@ -149,14 +160,14 @@ async function fetchDashboard() {
   } catch (err) {
     console.error(err)
   } finally {
-    loading.value = false
+    if (!silent) loading.value = false
   }
 }
 
 onMounted(() => {
   fetchStaticDashboard()
   fetchDashboard()
-  interval = setInterval(fetchDashboard, 5000)
+  interval = setInterval(() => fetchDashboard(true), 5000)
 })
 onUnmounted(() => clearInterval(interval))
 
@@ -448,6 +459,7 @@ async function handleCreateParcelOrder(settleNow = false) {
     parcelCustomerPhone.value = ''
     parcelNotes.value = ''
     parcelCart.value = []
+    parcelActiveTab.value = 'menu'
 
     fetchDashboard()
 
@@ -1829,54 +1841,101 @@ function handleCashierTabChange(tab: string) {
     </div>
 
     <!-- ═══════════════════════════════════════════════════════════════════════ -->
-    <!-- MODAL 1: NEW PARCEL / TAKEAWAY ORDER DIALOG                             -->
+    <!-- MODAL 1: NEW PARCEL / TAKEAWAY ORDER DIALOG (FULLY RESPONSIVE)           -->
     <!-- ═══════════════════════════════════════════════════════════════════════ -->
     <Dialog :open="parcelDialogOpen" @update:open="parcelDialogOpen = $event">
-      <DialogContent class="sm:max-w-4xl max-h-[90vh] flex flex-col p-0 overflow-hidden">
-        <DialogHeader class="p-5 pb-3 border-b border-border bg-card">
-          <DialogTitle class="font-display text-xl font-bold flex items-center gap-2">
-            <Package class="h-5 w-5 text-purple-600" /> Create Takeaway / Parcel Order
-          </DialogTitle>
-          <DialogDescription class="text-xs text-muted-foreground">
+      <DialogContent class="w-[96vw] max-w-4xl h-[92vh] sm:h-[88vh] max-h-[94vh] flex flex-col p-0 overflow-hidden rounded-2xl sm:rounded-3xl border border-border shadow-2xl">
+        <!-- Dialog Header -->
+        <DialogHeader class="p-3.5 sm:p-4 pb-2.5 sm:pb-3 border-b border-border bg-card shrink-0">
+          <div class="flex items-center justify-between">
+            <DialogTitle class="font-display text-base sm:text-xl font-bold flex items-center gap-2">
+              <Package class="h-4.5 w-4.5 sm:h-5 sm:w-5 text-purple-600" /> Create Takeaway / Parcel Order
+            </DialogTitle>
+          </div>
+          <DialogDescription class="hidden sm:block text-xs text-muted-foreground mt-0.5">
             Add takeaway items for the customer. Kitchen chef will prepare and pack the parcel order.
           </DialogDescription>
 
-          <!-- Customer details inputs -->
-          <div class="mt-3 grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+          <!-- Customer details inputs (compact 2-col on mobile, 3-col on desktop) -->
+          <div class="mt-2 grid grid-cols-2 sm:grid-cols-3 gap-2">
             <div>
-              <label class="text-[11px] font-semibold text-foreground/80 block mb-1">Customer Name *</label>
+              <label class="text-[10px] sm:text-[11px] font-bold text-foreground/80 block mb-0.5">Customer Name *</label>
               <Input
                 v-model="parcelCustomerName"
                 placeholder="e.g. Ramesh Shah"
-                class="h-9 text-xs"
+                class="h-8 text-xs bg-background"
               />
             </div>
             <div>
-              <label class="text-[11px] font-semibold text-foreground/80 block mb-1">Phone Number</label>
+              <label class="text-[10px] sm:text-[11px] font-bold text-foreground/80 block mb-0.5">Phone Number</label>
               <Input
                 v-model="parcelCustomerPhone"
                 placeholder="e.g. 9876543210"
-                class="h-9 text-xs"
+                class="h-8 text-xs bg-background"
               />
             </div>
-            <div>
-              <label class="text-[11px] font-semibold text-foreground/80 block mb-1">Packing / Order Note</label>
+            <div class="col-span-2 sm:col-span-1">
+              <label class="text-[10px] sm:text-[11px] font-bold text-foreground/80 block mb-0.5">
+                Packing / Order Note
+              </label>
               <Input
                 v-model="parcelNotes"
-                placeholder="e.g. Pack extra sauce / cutlery"
-                class="h-9 text-xs"
+                placeholder="e.g. Extra sauce / cutlery"
+                class="h-8 text-xs bg-background"
               />
             </div>
           </div>
         </DialogHeader>
 
-        <!-- Main Body: Menu Selector on Left, Parcel Cart on Right -->
-        <div class="flex-1 overflow-hidden grid grid-cols-1 lg:grid-cols-[1fr_320px] min-h-[350px]">
+        <!-- Mobile Segmented Tab Switcher (Visible on mobile/tablet, hidden on desktop) -->
+        <div class="px-3 py-1.5 bg-muted/30 border-b border-border flex items-center gap-1.5 lg:hidden shrink-0">
+          <button
+            type="button"
+            @click="parcelActiveTab = 'menu'"
+            :class="[
+              'flex-1 py-1.5 px-3 rounded-xl text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer',
+              parcelActiveTab === 'menu'
+                ? 'bg-card text-foreground shadow-xs border border-border/80 font-extrabold'
+                : 'text-muted-foreground hover:text-foreground'
+            ]"
+          >
+            <UtensilsCrossed class="h-3.5 w-3.5" />
+            <span>Select Dishes</span>
+          </button>
+          <button
+            type="button"
+            @click="parcelActiveTab = 'cart'"
+            :class="[
+              'flex-1 py-1.5 px-3 rounded-xl text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer relative',
+              parcelActiveTab === 'cart'
+                ? 'bg-card text-foreground shadow-xs border border-border/80 font-extrabold'
+                : 'text-muted-foreground hover:text-foreground'
+            ]"
+          >
+            <ShoppingBag class="h-3.5 w-3.5" />
+            <span>Parcel Cart</span>
+            <span
+              v-if="parcelCartTotalQty > 0"
+              class="px-1.5 py-0.5 text-[10px] font-extrabold rounded-full bg-primary text-primary-foreground leading-none"
+            >
+              {{ parcelCartTotalQty }} · ₹{{ parcelTotalAmount.toFixed(0) }}
+            </span>
+            <span v-else class="text-[10px] text-muted-foreground font-semibold">(0)</span>
+          </button>
+        </div>
 
-          <!-- Left: Menu Items with search and category filters -->
-          <div class="flex flex-col border-r border-border overflow-hidden">
+        <!-- Main Body: Menu Selector (Left / Tab 1) & Parcel Cart (Right / Tab 2) -->
+        <div class="flex-1 min-h-0 overflow-hidden grid grid-cols-1 lg:grid-cols-[1fr_330px]">
+
+          <!-- Left / Mobile Tab 1: Menu Items with search and category filters -->
+          <div
+            :class="[
+              'flex-col border-r border-border min-h-0 overflow-hidden',
+              parcelActiveTab === 'menu' ? 'flex' : 'hidden lg:flex'
+            ]"
+          >
             <!-- Search & Filters -->
-            <div class="p-3 border-b border-border space-y-2 bg-muted/20">
+            <div class="p-2.5 sm:p-3 border-b border-border space-y-2 bg-muted/20 shrink-0">
               <div class="relative">
                 <Search class="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
                 <Input
@@ -1887,16 +1946,24 @@ function handleCashierTabChange(tab: string) {
               </div>
               <div class="flex gap-1 overflow-x-auto pb-0.5 scrollbar-none">
                 <button
+                  type="button"
                   @click="parcelCategory = 'All'"
-                  :class="['px-2.5 py-1 rounded-full text-xs font-semibold whitespace-nowrap transition', parcelCategory === 'All' ? 'bg-primary text-primary-foreground' : 'bg-muted hover:bg-muted/80 text-muted-foreground']"
+                  :class="[
+                    'px-2.5 py-1 rounded-full text-xs font-semibold whitespace-nowrap transition cursor-pointer',
+                    parcelCategory === 'All' ? 'bg-primary text-primary-foreground' : 'bg-muted hover:bg-muted/80 text-muted-foreground'
+                  ]"
                 >
                   All
                 </button>
                 <button
+                  type="button"
                   v-for="c in categories"
                   :key="c.id || c._id"
                   @click="parcelCategory = c.name"
-                  :class="['px-2.5 py-1 rounded-full text-xs font-semibold whitespace-nowrap transition', parcelCategory === c.name ? 'bg-primary text-primary-foreground' : 'bg-muted hover:bg-muted/80 text-muted-foreground']"
+                  :class="[
+                    'px-2.5 py-1 rounded-full text-xs font-semibold whitespace-nowrap transition cursor-pointer',
+                    parcelCategory === c.name ? 'bg-primary text-primary-foreground' : 'bg-muted hover:bg-muted/80 text-muted-foreground'
+                  ]"
                 >
                   {{ c.name }}
                 </button>
@@ -1904,14 +1971,14 @@ function handleCashierTabChange(tab: string) {
             </div>
 
             <!-- Menu Grid -->
-            <div class="flex-1 overflow-y-auto p-4 grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+            <div class="flex-1 min-h-0 overflow-y-auto p-3 sm:p-4 grid grid-cols-1 sm:grid-cols-2 gap-2 content-start">
               <div v-if="filteredParcelMenuItems.length === 0" class="col-span-full py-12 text-center text-muted-foreground text-xs">
                 No menu items found.
               </div>
               <div
                 v-for="item in filteredParcelMenuItems"
                 :key="item._id"
-                class="p-2.5 rounded-xl border border-border bg-card hover:border-primary/40 transition flex items-center justify-between gap-2"
+                class="p-2.5 rounded-xl border border-border bg-card hover:border-primary/40 transition flex items-center justify-between gap-2 shadow-2xs"
               >
                 <div class="min-w-0 flex-1">
                   <div class="font-semibold text-xs truncate text-foreground">{{ item.name }}</div>
@@ -1921,8 +1988,9 @@ function handleCashierTabChange(tab: string) {
                 <div class="flex items-center gap-1 shrink-0">
                   <template v-if="getParcelCartQty(item._id) > 0">
                     <button
+                      type="button"
                       @click="decParcelCart(item._id)"
-                      class="h-7 w-7 rounded-lg border border-border flex items-center justify-center hover:bg-muted"
+                      class="h-7 w-7 rounded-lg border border-border flex items-center justify-center hover:bg-muted cursor-pointer active:scale-95"
                     >
                       <Minus class="h-3 w-3" />
                     </button>
@@ -1930,8 +1998,9 @@ function handleCashierTabChange(tab: string) {
                       {{ getParcelCartQty(item._id) }}
                     </span>
                     <button
+                      type="button"
                       @click="addToParcelCart(item)"
-                      class="h-7 w-7 rounded-lg bg-primary text-primary-foreground flex items-center justify-center hover:opacity-90"
+                      class="h-7 w-7 rounded-lg bg-primary text-primary-foreground flex items-center justify-center hover:opacity-90 cursor-pointer active:scale-95"
                     >
                       <Plus class="h-3 w-3" />
                     </button>
@@ -1940,7 +2009,7 @@ function handleCashierTabChange(tab: string) {
                     v-else
                     @click="addToParcelCart(item)"
                     size="sm"
-                    class="h-7 text-xs px-2.5 gradient-primary text-primary-foreground font-semibold"
+                    class="h-7 text-xs px-2.5 gradient-primary text-primary-foreground font-semibold cursor-pointer active:scale-95"
                   >
                     + Add
                   </Button>
@@ -1949,41 +2018,68 @@ function handleCashierTabChange(tab: string) {
             </div>
           </div>
 
-          <!-- Right: Parcel Cart Summary -->
-          <div class="flex flex-col bg-muted/10 overflow-hidden">
-            <div class="p-3 border-b border-border font-display text-sm font-bold flex items-center justify-between">
-              <span>Parcel Cart ({{ parcelCart.reduce((s, i) => s + i.quantity, 0) }})</span>
+          <!-- Right / Mobile Tab 2: Parcel Cart Summary -->
+          <div
+            :class="[
+              'flex-col bg-muted/10 min-h-0 overflow-hidden',
+              parcelActiveTab === 'cart' ? 'flex' : 'hidden lg:flex'
+            ]"
+          >
+            <div class="p-3 border-b border-border font-display text-sm font-bold flex items-center justify-between shrink-0 bg-card/60">
+              <span class="flex items-center gap-1.5">
+                <ShoppingBag class="h-4 w-4 text-purple-600" />
+                Parcel Cart ({{ parcelCartTotalQty }})
+              </span>
               <button
+                type="button"
                 v-if="parcelCart.length > 0"
                 @click="parcelCart = []"
-                class="text-[10px] text-destructive hover:underline font-semibold"
+                class="text-[10px] text-destructive hover:underline font-semibold cursor-pointer"
               >
                 Clear
               </button>
             </div>
 
-            <div class="flex-1 overflow-y-auto p-3 space-y-2">
-              <div v-if="parcelCart.length === 0" class="py-12 text-center text-muted-foreground text-xs">
-                <ShoppingBag class="h-6 w-6 mx-auto mb-1 opacity-40" />
-                Select items from menu to add
+            <div class="flex-1 min-h-0 overflow-y-auto p-3 space-y-2">
+              <div v-if="parcelCart.length === 0" class="py-12 text-center text-muted-foreground text-xs space-y-2">
+                <ShoppingBag class="h-8 w-8 mx-auto opacity-30 text-muted-foreground" />
+                <p>Select items from the menu to add to parcel cart.</p>
+                <Button
+                  v-if="parcelActiveTab === 'cart'"
+                  @click="parcelActiveTab = 'menu'"
+                  size="sm"
+                  variant="outline"
+                  class="h-7 text-xs lg:hidden cursor-pointer"
+                >
+                  ← Browse Dishes
+                </Button>
               </div>
 
               <div
                 v-for="item in parcelCart"
                 :key="item.menuItemId"
-                class="p-2 rounded-lg bg-card border border-border space-y-1"
+                class="p-2.5 rounded-xl bg-card border border-border space-y-1.5 shadow-2xs"
               >
                 <div class="flex justify-between items-center text-xs">
-                  <span class="font-semibold text-foreground truncate max-w-[140px]">{{ item.name }}</span>
+                  <span class="font-semibold text-foreground truncate max-w-[160px]">{{ item.name }}</span>
                   <span class="font-bold tabular-nums">₹{{ (item.price * item.quantity).toFixed(0) }}</span>
                 </div>
                 <div class="flex justify-between items-center text-[11px] text-muted-foreground">
                   <span>₹{{ item.price }} × {{ item.quantity }}</span>
-                  <div class="flex items-center gap-1">
-                    <button @click="decParcelCart(item.menuItemId)" class="h-5 w-5 rounded border border-border flex items-center justify-center hover:bg-muted">
+                  <div class="flex items-center gap-1.5">
+                    <button
+                      type="button"
+                      @click="decParcelCart(item.menuItemId)"
+                      class="h-6 w-6 rounded-lg border border-border flex items-center justify-center hover:bg-muted cursor-pointer active:scale-95"
+                    >
                       <Minus class="h-2.5 w-2.5" />
                     </button>
-                    <button @click="addToParcelCart({ _id: item.menuItemId, name: item.name, price: item.price })" class="h-5 w-5 rounded bg-primary text-primary-foreground flex items-center justify-center">
+                    <span class="w-5 text-center text-xs font-bold">{{ item.quantity }}</span>
+                    <button
+                      type="button"
+                      @click="addToParcelCart({ _id: item.menuItemId, name: item.name, price: item.price })"
+                      class="h-6 w-6 rounded-lg bg-primary text-primary-foreground flex items-center justify-center hover:opacity-90 cursor-pointer active:scale-95"
+                    >
                       <Plus class="h-2.5 w-2.5" />
                     </button>
                   </div>
@@ -1992,7 +2088,7 @@ function handleCashierTabChange(tab: string) {
             </div>
 
             <!-- Cart Totals -->
-            <div class="p-3 border-t border-border bg-card space-y-1 text-xs">
+            <div class="p-3 border-t border-border bg-card space-y-1 text-xs shrink-0">
               <div class="flex justify-between text-muted-foreground">
                 <span>Subtotal</span>
                 <span class="font-medium tabular-nums">₹{{ parcelSubtotal.toFixed(0) }}</span>
@@ -2001,35 +2097,103 @@ function handleCashierTabChange(tab: string) {
                 <span>GST ({{ gstPct }}%)</span>
                 <span class="font-medium tabular-nums">₹{{ parcelGstAmount.toFixed(0) }}</span>
               </div>
-              <div class="flex justify-between font-bold text-sm text-foreground pt-1 border-t border-border mt-1">
+              <div class="flex justify-between font-bold text-sm text-foreground pt-1.5 border-t border-border mt-1">
                 <span>Total Amount</span>
-                <span class="text-primary tabular-nums">₹{{ parcelTotalAmount.toFixed(0) }}</span>
+                <span class="text-primary tabular-nums text-base">₹{{ parcelTotalAmount.toFixed(0) }}</span>
               </div>
             </div>
           </div>
         </div>
 
-        <!-- Dialog Footer Actions -->
-        <div class="p-4 border-t border-border bg-card flex flex-col sm:flex-row items-center justify-between gap-3">
-          <div class="text-xs text-muted-foreground">
-            Total: <strong class="text-foreground text-sm font-bold">₹{{ parcelTotalAmount.toFixed(0) }}</strong>
+        <!-- Dialog Footer Actions (Always visible at bottom, never cut off) -->
+        <div class="p-3 sm:p-4 border-t border-border bg-card shrink-0">
+          <!-- Desktop & Tablet Footer (sm and up) -->
+          <div class="hidden sm:flex items-center justify-between gap-3">
+            <div class="text-xs text-muted-foreground">
+              Items: <strong class="text-foreground font-semibold">{{ parcelCartTotalQty }}</strong> · Total: <strong class="text-foreground text-sm font-bold">₹{{ parcelTotalAmount.toFixed(0) }}</strong>
+            </div>
+
+            <div class="flex items-center gap-2">
+              <Button
+                @click="parcelDialogOpen = false"
+                variant="outline"
+                class="h-9 text-xs cursor-pointer"
+              >
+                Cancel
+              </Button>
+              <Button
+                @click="handleCreateParcelOrder(true)"
+                :disabled="parcelSubmitting || parcelCart.length === 0"
+                class="h-9 px-4 text-xs font-bold gradient-primary text-primary-foreground shadow-glow cursor-pointer"
+              >
+                <Package class="h-3.5 w-3.5 mr-1" /> Send to Kitchen
+              </Button>
+            </div>
           </div>
 
-          <div class="flex items-center gap-2 w-full sm:w-auto">
-            <Button
-              @click="parcelDialogOpen = false"
-              variant="outline"
-              class="h-9 text-xs flex-1 sm:flex-initial"
-            >
-              Cancel
-            </Button>
-            <Button
-              @click="handleCreateParcelOrder(true)"
-              :disabled="parcelSubmitting || parcelCart.length === 0"
-              class="h-9 px-4 text-xs font-bold gradient-primary text-primary-foreground shadow-glow flex-1 sm:flex-initial"
-            >
-              Send to Kitchen
-            </Button>
+          <!-- Mobile Footer (< sm) -->
+          <div class="flex sm:hidden items-center justify-between gap-2">
+            <!-- If on Menu tab -->
+            <template v-if="parcelActiveTab === 'menu'">
+              <div class="min-w-0 flex-1">
+                <div class="text-xs font-bold text-foreground truncate">
+                  ₹{{ parcelTotalAmount.toFixed(0) }}
+                  <span class="text-[11px] font-normal text-muted-foreground ml-1">({{ parcelCartTotalQty }} items)</span>
+                </div>
+              </div>
+
+              <div class="flex items-center gap-1.5 shrink-0">
+                <Button
+                  @click="parcelDialogOpen = false"
+                  variant="outline"
+                  size="sm"
+                  class="h-8 text-xs cursor-pointer"
+                >
+                  Cancel
+                </Button>
+                <Button
+                  v-if="parcelCartTotalQty > 0"
+                  @click="parcelActiveTab = 'cart'"
+                  size="sm"
+                  class="h-8 px-3 text-xs font-bold gradient-primary text-primary-foreground shadow-glow flex items-center gap-1 cursor-pointer"
+                >
+                  <span>Review Cart</span>
+                  <ArrowRight class="h-3 w-3" />
+                </Button>
+              </div>
+            </template>
+
+            <!-- If on Cart tab -->
+            <template v-else>
+              <Button
+                @click="parcelActiveTab = 'menu'"
+                variant="ghost"
+                size="sm"
+                class="h-8 text-xs text-muted-foreground flex items-center gap-1 cursor-pointer px-2"
+              >
+                <ArrowLeft class="h-3 w-3" />
+                <span>Dishes</span>
+              </Button>
+
+              <div class="flex items-center gap-1.5 shrink-0">
+                <Button
+                  @click="parcelDialogOpen = false"
+                  variant="outline"
+                  size="sm"
+                  class="h-8 text-xs cursor-pointer"
+                >
+                  Cancel
+                </Button>
+                <Button
+                  @click="handleCreateParcelOrder(true)"
+                  :disabled="parcelSubmitting || parcelCart.length === 0"
+                  size="sm"
+                  class="h-8 px-3 text-xs font-bold gradient-primary text-primary-foreground shadow-glow cursor-pointer"
+                >
+                  Send to Kitchen
+                </Button>
+              </div>
+            </template>
           </div>
         </div>
       </DialogContent>

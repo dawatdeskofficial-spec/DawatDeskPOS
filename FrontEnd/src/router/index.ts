@@ -79,6 +79,11 @@ router.beforeEach(async (to, from, next) => {
     }
   }
 
+  // 5. Role-based access control: prevent non-main_admin from accessing /admin/* routes
+  if (to.path.startsWith('/admin') && role !== 'main_admin') {
+    return next(homePath || '/login')
+  }
+
   return next()
 })
 
