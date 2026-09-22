@@ -1793,9 +1793,9 @@ function handleCashierTabChange(tab: string) {
             </button>
           </div>
         </div>
-        <div class="overflow-x-auto">
+        <div class="overflow-x-auto overflow-y-auto max-h-[480px] sidebar-scrollbar">
           <table class="w-full text-sm">
-            <thead class="bg-muted/40 text-muted-foreground text-xs uppercase tracking-wider">
+            <thead class="bg-muted/90 backdrop-blur-md sticky top-0 z-10 shadow-2xs text-muted-foreground text-xs uppercase tracking-wider">
               <tr>
                 <th class="text-left px-5 py-3 font-medium">Txn</th>
                 <th class="text-left px-5 py-3 font-medium">Order / Table</th>

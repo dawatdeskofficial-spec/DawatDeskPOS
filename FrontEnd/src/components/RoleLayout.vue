@@ -65,6 +65,14 @@ const notifOpen = ref(false)
 const showMobileLanguageMenu = ref(false)
 const showLogoutConfirm = ref(false)
 
+const sidebarNavRef = ref<HTMLElement | null>(null)
+
+function handleSidebarWheel(e: WheelEvent) {
+  if (sidebarNavRef.value) {
+    sidebarNavRef.value.scrollTop += e.deltaY
+  }
+}
+
 // ── Notification system (waiter only) ───────────────────────────────────────
 const readyOrders = ref<any[]>([])
 const seenReadyIds = ref<Set<string>>(new Set())
@@ -77,7 +85,13 @@ const effectiveNav = computed(() => {
   if (isInspecting.value) {
     return restaurantNav
   }
-  return props.nav
+  if (props.nav && props.nav.length > 0) {
+    return props.nav
+  }
+  const r = auth.user?.role || props.role
+  if (r === 'main_admin') return adminNav
+  if (r === 'restaurant_admin') return restaurantNav
+  return props.nav || []
 })
 
 const effectiveRoleLabel = computed(() => {
@@ -297,10 +311,10 @@ function formatTime(ts: string) {
 
 <template>
   <div v-if="auth.user" class="min-h-screen bg-background text-foreground flex">
-    <!-- Desktop Sidebar (Pinned to Viewport Height) -->
+    <!-- Desktop Sidebar (Permanently Fixed to Viewport, Never Scrolls with Page) -->
     <aside
       v-if="role !== 'waiter'"
-      class="hidden lg:flex w-64 bg-sidebar text-sidebar-foreground border-r border-sidebar-border flex-col shrink-0 sticky top-0 h-screen max-h-screen z-30 select-none"
+      class="hidden lg:flex fixed top-0 left-0 bottom-0 w-64 bg-sidebar text-sidebar-foreground border-r border-sidebar-border flex-col shrink-0 h-screen max-h-screen z-30 select-none"
     >
       <div class="h-16 flex items-center justify-between px-5 border-b border-sidebar-border shrink-0">
         <router-link to="/" class="flex items-center">
@@ -314,7 +328,11 @@ function formatTime(ts: string) {
         </div>
       </div>
 
-      <nav class="flex-1 px-3 pb-3 space-y-0.5 overflow-y-auto min-h-0">
+      <!-- Navigation with independent internal scrollbar if needed -->
+      <nav
+        ref="sidebarNavRef"
+        class="sidebar-scrollbar flex-1 px-3 pb-3 space-y-0.5 min-h-0"
+      >
         <router-link
           v-for="item in effectiveNav"
           :key="item.to"
@@ -403,10 +421,10 @@ function formatTime(ts: string) {
       @logout="handleLogout"
     />
 
-    <!-- Main -->
-    <div class="flex-1 flex flex-col min-w-0">
-      <!-- Mobile App Header (Visible on screens < lg) -->
-      <div class="lg:hidden relative">
+    <!-- Main Content (Offset by sidebar width on desktop and padded for fixed navbars) -->
+    <div :class="['flex-1 flex flex-col min-w-0 pt-16', role !== 'waiter' ? 'lg:pl-64' : '']">
+      <!-- Mobile App Header (Fixed at top on screens < lg) -->
+      <div class="lg:hidden fixed top-0 left-0 right-0 h-16 z-40 bg-card/95 backdrop-blur-md border-b border-border">
         <AppHeader
           :brand="displayBrand"
           :role="role"
@@ -513,18 +531,23 @@ function formatTime(ts: string) {
         </Transition>
       </div>
 
-      <!-- Desktop Header (Visible on large screens / desktops) -->
-      <header class="hidden lg:flex h-16 border-b border-border items-center justify-between gap-2 px-6 bg-card/80 backdrop-blur-md sticky top-0 z-50">
+      <!-- Desktop Header (Fixed at top on large screens, perfectly aligned with sidebar) -->
+      <header
+        class="hidden lg:flex fixed top-0 right-0 h-16 border-b border-border items-center justify-between gap-2 px-6 bg-card/95 backdrop-blur-md z-40 transition-[left]"
+        :class="[role !== 'waiter' ? 'left-64' : 'left-0']"
+      >
         <!-- Left: Brand / Title -->
         <div class="flex items-center gap-2.5 min-w-0 flex-1">
+          <!-- Mini Logo for waiter role (which does not have desktop sidebar) -->
           <router-link v-if="role === 'waiter'" to="/" class="flex items-center mr-1 shrink-0">
             <DawatDeskLogo variant="auto" size="sm" :icon-only="true" />
           </router-link>
-          <!-- Breadcrumbs (Visible when Sidebar is present) -->
-          <div class="flex items-center gap-2 text-sm font-medium text-muted-foreground ml-2 select-none">
-            <span class="text-foreground/40 font-semibold uppercase tracking-wider text-[11px]">{{ displayBrand }}</span>
-            <span class="text-foreground/20">/</span>
-            <span class="text-foreground font-semibold">{{ breadcrumbs.map(c => c.label).join(' / ') }}</span>
+
+          <!-- Breadcrumbs -->
+          <div class="flex items-center gap-2 text-sm font-medium text-muted-foreground ml-1 select-none truncate">
+            <span class="text-foreground/40 font-semibold uppercase tracking-wider text-[11px] shrink-0">{{ displayBrand }}</span>
+            <span class="text-foreground/20 shrink-0">/</span>
+            <span class="text-foreground font-semibold truncate">{{ breadcrumbs.map(c => c.label).join(' / ') }}</span>
           </div>
         </div>
 
@@ -810,5 +833,33 @@ function formatTime(ts: string) {
 @keyframes bell {
   from { transform: rotate(-12deg); }
   to   { transform: rotate(12deg); }
+}
+
+/* ── Sleek Custom Scrollbar for Sidebar ── */
+.sidebar-scrollbar {
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scroll-behavior: smooth;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: thin;
+  scrollbar-color: hsl(var(--sidebar-border) / 0.8) transparent;
+}
+
+.sidebar-scrollbar::-webkit-scrollbar {
+  width: 5px;
+}
+
+.sidebar-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.sidebar-scrollbar::-webkit-scrollbar-thumb {
+  background: hsl(var(--sidebar-foreground) / 0.18);
+  border-radius: 9999px;
+  transition: background-color 0.2s ease;
+}
+
+.sidebar-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: hsl(var(--sidebar-foreground) / 0.35);
 }
 </style>

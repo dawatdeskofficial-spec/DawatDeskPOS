@@ -175,9 +175,9 @@ function getPaymentMethodLabel(method: string) {
       <span class="text-sm font-medium">Fetching restaurant orders…</span>
     </div>
 
-    <div v-else class="grid grid-cols-1 xl:grid-cols-[360px_1fr] gap-6">
+    <div v-else class="grid grid-cols-1 xl:grid-cols-[360px_1fr] gap-6 items-start">
       <!-- Left: Filter, search & list -->
-      <div class="space-y-4">
+      <div class="space-y-4 lg:sticky lg:top-20">
         <!-- Search & Status Selectors -->
         <div class="rounded-2xl border border-border bg-card p-4 shadow-soft space-y-3">
           <div class="relative">
@@ -217,12 +217,13 @@ function getPaymentMethodLabel(method: string) {
         </div>
 
         <!-- Orders List Container -->
-        <div class="rounded-2xl border border-border bg-card shadow-soft overflow-hidden">
-          <div class="p-4 border-b border-border bg-muted/20">
+        <div class="rounded-2xl border border-border bg-card shadow-soft overflow-hidden flex flex-col">
+          <div class="p-3.5 px-4 border-b border-border bg-muted/20 flex items-center justify-between">
             <h3 class="text-xs font-bold uppercase tracking-wider text-muted-foreground">Orders List</h3>
+            <span class="text-xs font-bold text-muted-foreground">({{ filteredOrders.length }})</span>
           </div>
           
-          <div class="divide-y divide-border overflow-y-auto max-h-[600px]">
+          <div class="divide-y divide-border overflow-y-auto max-h-[calc(100vh-370px)] min-h-[300px] sidebar-scrollbar">
             <div v-if="filteredOrders.length === 0" class="p-10 text-center text-muted-foreground text-sm">
               <ShoppingBag class="h-8 w-8 mx-auto mb-2 opacity-30" />
               No matching orders found.
@@ -284,7 +285,7 @@ function getPaymentMethodLabel(method: string) {
       </div>
 
       <!-- Right: Detailed invoice check (Desktop View) -->
-      <div class="hidden lg:block space-y-4">
+      <div class="hidden lg:block space-y-4 lg:sticky lg:top-20">
         <div v-if="!selectedOrder" class="rounded-2xl border border-border bg-card p-20 text-center text-muted-foreground flex flex-col items-center justify-center gap-3 shadow-soft min-h-[500px]">
           <ShoppingBag class="h-10 w-10 opacity-30 text-primary" />
           <div>
@@ -338,9 +339,9 @@ function getPaymentMethodLabel(method: string) {
                 <Utensils class="h-4 w-4" /> Ordered Items ({{ consolidateOrderItems(selectedOrder.items).length }})
               </h4>
 
-              <div class="border border-border rounded-xl overflow-hidden">
+              <div class="border border-border rounded-xl overflow-hidden max-h-[300px] overflow-y-auto sidebar-scrollbar">
                 <table class="w-full text-sm">
-                  <thead class="bg-muted/40 text-muted-foreground text-xs uppercase tracking-wider">
+                  <thead class="bg-muted/90 backdrop-blur-md sticky top-0 z-10 text-muted-foreground text-xs uppercase tracking-wider shadow-2xs">
                     <tr>
                       <th class="text-left px-4 py-2.5 font-semibold">Dish</th>
                       <th class="text-center px-4 py-2.5 font-semibold">Qty</th>

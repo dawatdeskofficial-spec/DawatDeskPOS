@@ -140,7 +140,7 @@ function changeLanguage(code: string) {
             </div>
 
             <!-- Scrollable Navigation Items -->
-            <div class="flex-1 overflow-y-auto p-4 space-y-5">
+            <div class="sidebar-scrollbar flex-1 p-4 space-y-5">
               <!-- OPERATIONS SECTION -->
               <div v-if="operationsLinks.length > 0" class="space-y-1">
                 <div class="px-3 text-[10px] font-black uppercase tracking-wider text-muted-foreground/70 mb-1.5">
@@ -313,5 +313,32 @@ function changeLanguage(code: string) {
 .slide-right-enter-from,
 .slide-right-leave-to {
   transform: translateX(-100%);
+}
+
+.sidebar-scrollbar {
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scroll-behavior: smooth;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: thin;
+  scrollbar-color: hsl(var(--border)) transparent;
+}
+
+.sidebar-scrollbar::-webkit-scrollbar {
+  width: 5px;
+}
+
+.sidebar-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.sidebar-scrollbar::-webkit-scrollbar-thumb {
+  background: hsl(var(--muted-foreground) / 0.2);
+  border-radius: 9999px;
+  transition: background-color 0.2s ease;
+}
+
+.sidebar-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: hsl(var(--muted-foreground) / 0.4);
 }
 </style>

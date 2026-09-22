@@ -1063,9 +1063,9 @@ function timeSince(ts: string) {
                 <Button variant="ghost" size="sm" class="text-xs h-8">View all →</Button>
               </router-link>
             </div>
-            <div class="overflow-x-auto">
+            <div class="overflow-x-auto overflow-y-auto max-h-[380px] sidebar-scrollbar">
               <table class="w-full text-sm">
-                <thead class="bg-muted/40 text-[11px] uppercase tracking-wider text-muted-foreground">
+                <thead class="bg-muted/90 backdrop-blur-md sticky top-0 z-10 shadow-2xs text-[11px] uppercase tracking-wider text-muted-foreground">
                   <tr>
                     <th class="text-left font-semibold px-4 py-2.5">Order ID</th>
                     <th class="text-left font-semibold px-4 py-2.5">Table</th>

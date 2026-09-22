@@ -401,9 +401,9 @@ async function moveCategory(index: number, direction: -1 | 1) {
       </div>
       <template v-else>
         <!-- Desktop Table (Hidden on Mobile) -->
-        <div class="hidden md:block overflow-x-auto">
+        <div class="hidden md:block overflow-x-auto overflow-y-auto max-h-[360px] sidebar-scrollbar">
           <table class="w-full text-sm">
-            <thead class="bg-muted/30 text-left text-xs uppercase tracking-wider text-muted-foreground">
+            <thead class="bg-muted/90 backdrop-blur-md sticky top-0 z-10 shadow-2xs text-left text-xs uppercase tracking-wider text-muted-foreground">
               <tr>
                 <th class="px-4 py-3 font-semibold">Category</th>
                 <th class="px-4 py-3 font-semibold">Items</th>
@@ -449,7 +449,7 @@ async function moveCategory(index: number, direction: -1 | 1) {
         </div>
 
         <!-- Mobile Category Cards (Visible on Mobile) -->
-        <div class="block md:hidden divide-y divide-border">
+        <div class="block md:hidden divide-y divide-border max-h-[360px] overflow-y-auto sidebar-scrollbar">
           <div
             v-for="category in sortedCategories"
             :key="getCategoryId(category)"

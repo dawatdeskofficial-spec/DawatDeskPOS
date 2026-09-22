@@ -196,7 +196,7 @@ async function handleSave() {
     </div>
 
     <!-- Search & Role Filter Ribbon -->
-    <div class="mb-6 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 bg-card p-4 rounded-2xl border border-border shadow-soft">
+    <div class="mb-6 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 bg-card/95 backdrop-blur-md p-4 rounded-2xl border border-border shadow-soft sticky top-16 z-20">
       <div class="relative flex-1 max-w-md">
         <Search class="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
         <Input

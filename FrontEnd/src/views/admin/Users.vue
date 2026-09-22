@@ -245,7 +245,7 @@ function formatDate(ds: string) {
     </div>
 
     <!-- Search & Role Ribbon -->
-    <div class="mb-4 rounded-2xl bg-card border border-border shadow-soft p-4 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
+    <div class="mb-4 rounded-2xl bg-card/95 backdrop-blur-md border border-border shadow-soft p-4 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 sticky top-16 z-20">
       <div class="relative flex-1 max-w-md">
         <Search class="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
         <Input
@@ -295,7 +295,7 @@ function formatDate(ds: string) {
       <!-- ═════════════════════════════════════════════════════════════════════ -->
       <!-- MOBILE USER CARD LIST (< md screens / phone devices)                -->
       <!-- ═════════════════════════════════════════════════════════════════════ -->
-      <div class="block md:hidden divide-y divide-border/60">
+      <div class="block md:hidden divide-y divide-border/60 max-h-[calc(100vh-270px)] overflow-y-auto sidebar-scrollbar">
         <div v-if="loading" class="p-8 text-center text-muted-foreground text-xs">
           Loading users…
         </div>
@@ -373,9 +373,9 @@ function formatDate(ds: string) {
       <!-- ═════════════════════════════════════════════════════════════════════ -->
       <!-- DESKTOP DATA TABLE (>= md screens)                                  -->
       <!-- ═════════════════════════════════════════════════════════════════════ -->
-      <div class="hidden md:block overflow-x-auto">
+      <div class="hidden md:block overflow-x-auto overflow-y-auto max-h-[calc(100vh-270px)] min-h-[350px] sidebar-scrollbar">
         <table class="min-w-full text-sm">
-          <thead class="bg-muted/40 text-muted-foreground text-xs uppercase tracking-wider">
+          <thead class="bg-muted/90 backdrop-blur-md sticky top-0 z-10 text-muted-foreground text-xs uppercase tracking-wider shadow-2xs">
             <tr>
               <th class="text-left px-5 py-3 font-medium">Name</th>
               <th class="text-left px-5 py-3 font-medium">Email</th>

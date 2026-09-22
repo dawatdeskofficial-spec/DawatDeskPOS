@@ -29,18 +29,24 @@ const deltaClass = computed(() => {
 </script>
 
 <template>
-  <div class="rounded-2xl bg-card border border-border p-5 shadow-soft hover:shadow-glow transition-all">
-    <div class="flex items-center justify-between gap-2">
-      <div class="text-xs font-semibold uppercase tracking-wider text-muted-foreground">{{ label }}</div>
-      <div :class="['h-9 w-9 rounded-xl border grid place-items-center flex-none', TONE_BG[tone]]">
-        <component :is="icon" v-if="icon" class="h-4.5 w-4.5" />
+  <div class="rounded-2xl bg-card border border-border p-3.5 sm:p-4 lg:p-5 shadow-xs hover:shadow-soft transition-all flex flex-col justify-between min-w-0">
+    <div class="flex items-center justify-between gap-1.5 min-w-0">
+      <div class="text-[11px] sm:text-xs font-bold uppercase tracking-wider text-muted-foreground truncate flex-1 min-w-0" :title="label">
+        {{ label }}
+      </div>
+      <div :class="['h-7 w-7 sm:h-8 sm:w-8 lg:h-9 lg:w-9 rounded-xl border grid place-items-center shrink-0 shadow-2xs', TONE_BG[tone]]">
+        <component :is="icon" v-if="icon" class="h-3.5 w-3.5 sm:h-4 sm:w-4" />
       </div>
     </div>
-    <div class="mt-4 flex items-baseline justify-between gap-2 flex-wrap">
-      <div class="text-2xl lg:text-3xl font-extrabold tracking-tight font-display">{{ value }}</div>
-      <span v-if="delta" :class="['text-xs font-semibold px-2 py-0.5 rounded-full border', deltaClass]">
-        {{ delta }}
-      </span>
+    <div class="mt-2.5 sm:mt-3.5 lg:mt-4 min-w-0">
+      <div class="text-xl sm:text-2xl lg:text-3xl font-extrabold tracking-tight font-display text-foreground leading-tight truncate">
+        {{ value }}
+      </div>
+      <div v-if="delta" class="mt-1 sm:mt-1.5 flex items-center min-w-0">
+        <span :class="['inline-flex items-center text-[10px] sm:text-[11.5px] font-semibold px-2 py-0.5 rounded-md border truncate max-w-full leading-tight', deltaClass]" :title="delta">
+          {{ delta }}
+        </span>
+      </div>
     </div>
   </div>
 </template>

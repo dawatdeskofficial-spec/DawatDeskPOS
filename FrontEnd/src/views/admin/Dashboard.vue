@@ -348,23 +348,23 @@ function formatCurrency(n: number) {
     </PageHeader>
 
     <!-- ── 1. REAL-TIME PLATFORM KPI GRID ───────────────────────────────────── -->
-    <div class="grid grid-cols-2 lg:grid-cols-4 gap-3.5 mb-5">
+    <div class="grid grid-cols-2 lg:grid-cols-4 gap-2.5 sm:gap-3.5 mb-4 sm:mb-5">
       <StatCard
         label="Today's Revenue"
         :value="formatCurrency(todayRevenueMetric)"
-        :delta="`${todayOrdersCount} orders placed today`"
+        :delta="`${todayOrdersCount} orders today`"
         :icon="DollarSign"
         tone="success"
       />
       <StatCard
-        label="Live Active Orders"
+        label="Live Orders"
         :value="liveActiveOrdersCount.toString()"
-        delta="Cooking & dining right now"
+        :delta="liveActiveOrdersCount > 0 ? `${liveActiveOrdersCount} in kitchen` : 'Kitchen synced'"
         :icon="ShoppingBag"
         tone="primary"
       />
       <StatCard
-        :label="selectedVenueId === 'ALL' ? 'Connected Branches' : 'Venue Status'"
+        :label="selectedVenueId === 'ALL' ? 'Branches' : 'Venue Status'"
         :value="selectedVenueId === 'ALL' ? restaurants.length.toString() : 'Active'"
         :delta="selectedVenueId === 'ALL' ? '100% Operational' : (selectedRestaurantObj?.city || 'Main Branch')"
         :icon="Building2"
@@ -373,76 +373,76 @@ function formatCurrency(n: number) {
       <StatCard
         label="Active Staff"
         :value="activeStaffCount.toString()"
-        :delta="selectedVenueId === 'ALL' ? 'Across all venues' : 'Assigned to venue'"
+        :delta="selectedVenueId === 'ALL' ? 'Across venues' : 'Assigned to venue'"
         :icon="Users"
         tone="warning"
       />
     </div>
 
     <!-- ── 2. QUICK ACTION LAUNCHPAD (Executive Shortcuts) ──────────────────── -->
-    <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
+    <div class="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3 mb-5 sm:mb-6">
       <router-link
         to="/admin/restaurants"
-        class="p-3.5 rounded-2xl bg-card border border-border hover:border-primary/50 hover:bg-primary/5 transition flex items-center justify-between gap-2 group shadow-2xs cursor-pointer"
+        class="p-2.5 sm:p-3.5 rounded-2xl bg-card border border-border hover:border-primary/50 hover:bg-primary/5 transition flex items-center justify-between gap-1.5 sm:gap-2 group shadow-2xs cursor-pointer min-w-0"
       >
-        <div class="flex items-center gap-2.5 min-w-0">
-          <div class="h-9 w-9 rounded-xl gradient-primary text-primary-foreground flex items-center justify-center shrink-0 shadow-xs group-hover:scale-105 transition">
-            <Building2 class="h-4.5 w-4.5" />
+        <div class="flex items-center gap-2 sm:gap-2.5 min-w-0">
+          <div class="h-8 w-8 sm:h-9 sm:w-9 rounded-xl gradient-primary text-primary-foreground flex items-center justify-center shrink-0 shadow-xs group-hover:scale-105 transition">
+            <Building2 class="h-4 w-4 sm:h-4.5 sm:w-4.5" />
           </div>
           <div class="min-w-0">
-            <div class="font-bold text-xs text-foreground group-hover:text-primary transition truncate">Manage Venues</div>
-            <div class="text-[10.5px] text-muted-foreground truncate">{{ restaurants.length }} Connected</div>
+            <div class="font-bold text-[11px] sm:text-xs text-foreground group-hover:text-primary transition truncate">Manage Venues</div>
+            <div class="text-[9.5px] sm:text-[10.5px] text-muted-foreground truncate">{{ restaurants.length }} Connected</div>
           </div>
         </div>
-        <ChevronRight class="h-4 w-4 text-muted-foreground group-hover:text-primary group-hover:translate-x-0.5 transition shrink-0" />
+        <ChevronRight class="hidden sm:block h-4 w-4 text-muted-foreground group-hover:text-primary group-hover:translate-x-0.5 transition shrink-0" />
       </router-link>
 
       <router-link
         to="/admin/users"
-        class="p-3.5 rounded-2xl bg-card border border-border hover:border-emerald-500/50 hover:bg-emerald-500/5 transition flex items-center justify-between gap-2 group shadow-2xs cursor-pointer"
+        class="p-2.5 sm:p-3.5 rounded-2xl bg-card border border-border hover:border-emerald-500/50 hover:bg-emerald-500/5 transition flex items-center justify-between gap-1.5 sm:gap-2 group shadow-2xs cursor-pointer min-w-0"
       >
-        <div class="flex items-center gap-2.5 min-w-0">
-          <div class="h-9 w-9 rounded-xl bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30 flex items-center justify-center shrink-0 shadow-xs group-hover:scale-105 transition">
-            <Users class="h-4.5 w-4.5" />
+        <div class="flex items-center gap-2 sm:gap-2.5 min-w-0">
+          <div class="h-8 w-8 sm:h-9 sm:w-9 rounded-xl bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30 flex items-center justify-center shrink-0 shadow-xs group-hover:scale-105 transition">
+            <Users class="h-4 w-4 sm:h-4.5 sm:w-4.5" />
           </div>
           <div class="min-w-0">
-            <div class="font-bold text-xs text-foreground group-hover:text-emerald-600 dark:group-hover:text-emerald-400 transition truncate">Staff &amp; Users</div>
-            <div class="text-[10.5px] text-muted-foreground truncate">{{ allUsers.length }} Registered</div>
+            <div class="font-bold text-[11px] sm:text-xs text-foreground group-hover:text-emerald-600 dark:group-hover:text-emerald-400 transition truncate">Staff &amp; Users</div>
+            <div class="text-[9.5px] sm:text-[10.5px] text-muted-foreground truncate">{{ allUsers.length }} Registered</div>
           </div>
         </div>
-        <ChevronRight class="h-4 w-4 text-muted-foreground group-hover:text-emerald-500 group-hover:translate-x-0.5 transition shrink-0" />
+        <ChevronRight class="hidden sm:block h-4 w-4 text-muted-foreground group-hover:text-emerald-500 group-hover:translate-x-0.5 transition shrink-0" />
       </router-link>
 
       <router-link
         to="/restaurant/reports"
-        class="p-3.5 rounded-2xl bg-card border border-border hover:border-amber-500/50 hover:bg-amber-500/5 transition flex items-center justify-between gap-2 group shadow-2xs cursor-pointer"
+        class="p-2.5 sm:p-3.5 rounded-2xl bg-card border border-border hover:border-amber-500/50 hover:bg-amber-500/5 transition flex items-center justify-between gap-1.5 sm:gap-2 group shadow-2xs cursor-pointer min-w-0"
       >
-        <div class="flex items-center gap-2.5 min-w-0">
-          <div class="h-9 w-9 rounded-xl bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30 flex items-center justify-center shrink-0 shadow-xs group-hover:scale-105 transition">
-            <TrendingUp class="h-4.5 w-4.5" />
+        <div class="flex items-center gap-2 sm:gap-2.5 min-w-0">
+          <div class="h-8 w-8 sm:h-9 sm:w-9 rounded-xl bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30 flex items-center justify-center shrink-0 shadow-xs group-hover:scale-105 transition">
+            <TrendingUp class="h-4 w-4 sm:h-4.5 sm:w-4.5" />
           </div>
           <div class="min-w-0">
-            <div class="font-bold text-xs text-foreground group-hover:text-amber-600 dark:group-hover:text-amber-400 transition truncate">Financial Reports</div>
-            <div class="text-[10.5px] text-muted-foreground truncate">Detailed Sales</div>
+            <div class="font-bold text-[11px] sm:text-xs text-foreground group-hover:text-amber-600 dark:group-hover:text-amber-400 transition truncate">Financials</div>
+            <div class="text-[9.5px] sm:text-[10.5px] text-muted-foreground truncate">Detailed Sales</div>
           </div>
         </div>
-        <ChevronRight class="h-4 w-4 text-muted-foreground group-hover:text-amber-500 group-hover:translate-x-0.5 transition shrink-0" />
+        <ChevronRight class="hidden sm:block h-4 w-4 text-muted-foreground group-hover:text-amber-500 group-hover:translate-x-0.5 transition shrink-0" />
       </router-link>
 
       <router-link
         to="/admin/logs"
-        class="p-3.5 rounded-2xl bg-card border border-border hover:border-purple-500/50 hover:bg-purple-500/5 transition flex items-center justify-between gap-2 group shadow-2xs cursor-pointer"
+        class="p-2.5 sm:p-3.5 rounded-2xl bg-card border border-border hover:border-purple-500/50 hover:bg-purple-500/5 transition flex items-center justify-between gap-1.5 sm:gap-2 group shadow-2xs cursor-pointer min-w-0"
       >
-        <div class="flex items-center gap-2.5 min-w-0">
-          <div class="h-9 w-9 rounded-xl bg-purple-500/15 text-purple-600 dark:text-purple-400 border border-purple-500/30 flex items-center justify-center shrink-0 shadow-xs group-hover:scale-105 transition">
-            <FileText class="h-4.5 w-4.5" />
+        <div class="flex items-center gap-2 sm:gap-2.5 min-w-0">
+          <div class="h-8 w-8 sm:h-9 sm:w-9 rounded-xl bg-purple-500/15 text-purple-600 dark:text-purple-400 border border-purple-500/30 flex items-center justify-center shrink-0 shadow-xs group-hover:scale-105 transition">
+            <FileText class="h-4 w-4 sm:h-4.5 sm:w-4.5" />
           </div>
           <div class="min-w-0">
-            <div class="font-bold text-xs text-foreground group-hover:text-purple-600 dark:group-hover:text-purple-400 transition truncate">Audit &amp; Logs</div>
-            <div class="text-[10.5px] text-muted-foreground truncate">System History</div>
+            <div class="font-bold text-[11px] sm:text-xs text-foreground group-hover:text-purple-600 dark:group-hover:text-purple-400 transition truncate">Audit &amp; Logs</div>
+            <div class="text-[9.5px] sm:text-[10.5px] text-muted-foreground truncate">System History</div>
           </div>
         </div>
-        <ChevronRight class="h-4 w-4 text-muted-foreground group-hover:text-purple-500 group-hover:translate-x-0.5 transition shrink-0" />
+        <ChevronRight class="hidden sm:block h-4 w-4 text-muted-foreground group-hover:text-purple-500 group-hover:translate-x-0.5 transition shrink-0" />
       </router-link>
     </div>
 
@@ -531,9 +531,9 @@ function formatCurrency(n: number) {
     </div>
 
     <!-- ── 4. REAL-TIME ACTIVITY & LIVE ORDER STREAM ───────────────────────── -->
-    <div class="rounded-2xl bg-card border border-border shadow-soft overflow-hidden">
-      <!-- Activity Feed Header & Filters -->
-      <div class="p-3.5 sm:p-4 border-b border-border flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-muted/20">
+    <div class="rounded-2xl bg-card border border-border shadow-soft overflow-hidden flex flex-col">
+      <!-- Activity Feed Header & Filters (Sticky at top of container) -->
+      <div class="p-3.5 sm:p-4 border-b border-border flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-card/95 backdrop-blur-md sticky top-0 z-10 shrink-0">
         <!-- Feed Tab Switcher -->
         <div class="flex items-center gap-1 bg-muted/50 p-1 rounded-xl border border-border text-xs font-bold shrink-0">
           <button
@@ -595,7 +595,7 @@ function formatCurrency(n: number) {
       </div>
 
       <!-- ── TAB 1: LIVE ORDERS STREAM ── -->
-      <div v-if="activeFeedTab === 'live_orders'">
+      <div v-if="activeFeedTab === 'live_orders'" class="flex-1 flex flex-col min-h-0">
         <div v-if="loading" class="p-12 text-center text-muted-foreground text-xs">
           Loading live orders stream...
         </div>
@@ -606,9 +606,9 @@ function formatCurrency(n: number) {
           <p class="text-xs text-muted-foreground mt-0.5">Orders placed by waiters will appear here instantly.</p>
         </div>
 
-        <div v-else class="divide-y divide-border/60">
+        <div v-else class="divide-y divide-border/60 overflow-y-auto max-h-[500px] sm:max-h-[580px] sidebar-scrollbar flex-1">
           <div
-            v-for="order in liveOrdersList.slice(0, 25)"
+            v-for="order in liveOrdersList.slice(0, 50)"
             :key="order.id || order._id"
             class="p-3.5 sm:p-4 hover:bg-muted/15 transition flex flex-col sm:flex-row sm:items-center justify-between gap-3"
           >
@@ -669,15 +669,15 @@ function formatCurrency(n: number) {
       </div>
 
       <!-- ── TAB 2: RECENT SETTLEMENTS ── -->
-      <div v-else-if="activeFeedTab === 'settlements'">
+      <div v-else-if="activeFeedTab === 'settlements'" class="flex-1 flex flex-col min-h-0">
         <div v-if="recentSettlementsList.length === 0" class="p-12 text-center text-muted-foreground">
           <Receipt class="h-8 w-8 mx-auto mb-2 opacity-30 text-emerald-500" />
           <p class="font-semibold text-sm text-foreground">No recent payment settlements</p>
         </div>
 
-        <div v-else class="divide-y divide-border/60">
+        <div v-else class="divide-y divide-border/60 overflow-y-auto max-h-[500px] sm:max-h-[580px] sidebar-scrollbar flex-1">
           <div
-            v-for="p in recentSettlementsList.slice(0, 25)"
+            v-for="p in recentSettlementsList.slice(0, 50)"
             :key="p.id || p._id"
             class="p-3.5 sm:p-4 hover:bg-muted/15 transition flex items-center justify-between gap-3"
           >

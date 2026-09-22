@@ -1150,9 +1150,9 @@ function formatDateTime(dateStr: string) {
       <div v-if="staffPerformance.length === 0" class="py-10 text-center text-xs text-muted-foreground">
         No staff activity recorded for the selected timeframe.
       </div>
-      <div v-else class="overflow-x-auto">
+      <div v-else class="overflow-x-auto overflow-y-auto max-h-[380px] sidebar-scrollbar">
         <table class="w-full text-xs">
-          <thead class="bg-muted/40 uppercase tracking-wider text-[10px] text-muted-foreground font-semibold">
+          <thead class="bg-muted/90 backdrop-blur-md sticky top-0 z-10 shadow-2xs uppercase tracking-wider text-[10px] text-muted-foreground font-semibold">
             <tr>
               <th class="text-left px-4 py-2.5">Staff Member</th>
               <th class="text-left px-4 py-2.5">Role</th>
@@ -1228,9 +1228,9 @@ function formatDateTime(dateStr: string) {
       </div>
 
       <!-- Transactions Table -->
-      <div class="overflow-x-auto">
+      <div class="overflow-x-auto overflow-y-auto max-h-[500px] sidebar-scrollbar">
         <table class="w-full text-sm">
-          <thead class="bg-muted/40 text-[11px] uppercase tracking-wider text-muted-foreground font-semibold">
+          <thead class="bg-muted/90 backdrop-blur-md sticky top-0 z-10 shadow-2xs text-[11px] uppercase tracking-wider text-muted-foreground font-semibold">
             <tr>
               <th class="text-left px-4 py-3">Receipt ID</th>
               <th class="text-left px-4 py-3">Table</th>
