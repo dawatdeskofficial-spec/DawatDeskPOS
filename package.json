@@ -11,5 +11,8 @@
     "build:frontend": "cd FrontEnd && npm run build",
     "test:backend": "cd BackEnd && npm test",
     "lint:frontend": "cd FrontEnd && npm run lint"
+  },
+  "devDependencies": {
+    "vercel": "^61.1.0"
   }
 }
