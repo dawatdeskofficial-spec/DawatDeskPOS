@@ -71,11 +71,27 @@ app.use(async (req, res, next) => {
   }
 });
 
-// Prevent stale caching on API routes in serverless / edge environments
+// Granular HTTP Cache-Control for serverless performance
 app.use('/api', (req, res, next) => {
-  res.set('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
-  res.set('Pragma', 'no-cache');
-  res.set('Expires', '0');
+  const isGet = req.method === 'GET';
+  const path = req.path || '';
+
+  // Safe semi-static read-heavy routes
+  const isSafeStatic = isGet && (
+    path.startsWith('/menu') ||
+    path.startsWith('/categories') ||
+    path.startsWith('/restaurants') ||
+    path.startsWith('/settings')
+  );
+
+  if (isSafeStatic) {
+    res.set('Cache-Control', 'private, no-cache, stale-while-revalidate=300');
+  } else {
+    // Dynamic / real-time / sensitive / mutation routes
+    res.set('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+    res.set('Pragma', 'no-cache');
+    res.set('Expires', '0');
+  }
   next();
 });
 

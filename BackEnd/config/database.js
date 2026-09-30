@@ -16,8 +16,14 @@ const connectDB = async () => {
       throw new Error('MONGODB_URI is not defined in environment variables');
     }
 
-    if (cached.conn && mongoose.connection.readyState === 1) {
-      return cached.conn;
+    if (mongoose.connection.readyState === 1) {
+      cached.conn = mongoose;
+      return mongoose;
+    }
+
+    if (mongoose.connection.readyState === 0 || mongoose.connection.readyState === 3) {
+      cached.promise = null;
+      cached.conn = null;
     }
 
     if (!cached.promise) {

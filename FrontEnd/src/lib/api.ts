@@ -121,11 +121,30 @@ const parseResponse = async (response: Response, silent = false) => {
   return data as any;
 };
 
-// Application-wide Frontend API Cache to deduplicate frequent requests
-const clientCache = new Map<string, { params: any, expiry: number, promise?: Promise<any> }>();
+// Smart Namespace-based Frontend API Cache & In-flight Request Deduplication
+export type CacheNamespace = 'restaurant' | 'menu' | 'category' | 'user' | 'settings' | 'general';
+
+interface CacheEntry {
+  data: any;
+  expiry: number;
+  namespace: CacheNamespace;
+}
+
+const clientCache = new Map<string, CacheEntry>();
+const inFlightRequests = new Map<string, Promise<any>>();
 
 export const clearClientCache = () => {
   clientCache.clear();
+  inFlightRequests.clear();
+};
+
+export const invalidateCacheNamespaces = (namespaces: (CacheNamespace | string)[]) => {
+  const targets = new Set(namespaces.map(n => n.toLowerCase()));
+  for (const [key, entry] of clientCache.entries()) {
+    if (targets.has(entry.namespace) || Array.from(targets).some(t => key.toLowerCase().includes(`/api/${t}`))) {
+      clientCache.delete(key);
+    }
+  }
 };
 
 export const fetchJson = async (path: string, init: ApiRequestInit = {}) => {
@@ -134,11 +153,6 @@ export const fetchJson = async (path: string, init: ApiRequestInit = {}) => {
     "Content-Type": "application/json",
     ...(init.headers ?? {}),
   } as Record<string, string>;
-
-  // Clear cache on mutations explicitly
-  if (init.method && ["POST", "PUT", "DELETE", "PATCH"].includes(init.method.toUpperCase())) {
-    clearClientCache();
-  }
 
   const response = await fetch(url, {
     ...init,
@@ -156,46 +170,80 @@ export const authFetch = async (path: string, init: ApiRequestInit = {}) => {
     ...(token ? { Authorization: `Bearer ${token}` } : {}),
   } as Record<string, string>;
 
-  // Clear cache on mutations directly
-  if (init.method && ["POST", "PUT", "DELETE", "PATCH"].includes(init.method.toUpperCase())) {
-    clearClientCache();
+  // Deduplicate inflight GET requests
+  const method = (init.method || "GET").toUpperCase();
+  const isGet = method === "GET";
+  const dedupeKey = `${path}::${token || ''}`;
+
+  if (isGet && inFlightRequests.has(dedupeKey)) {
+    return inFlightRequests.get(dedupeKey);
   }
 
-  const response = await fetch(buildUrl(path), {
+  const fetchPromise = fetch(buildUrl(path), {
     ...init,
     headers,
-  });
+  })
+    .then((response) => parseResponse(response, init.silent))
+    .finally(() => {
+      if (isGet) {
+        inFlightRequests.delete(dedupeKey);
+      }
+    });
 
-  return parseResponse(response, init.silent);
+  if (isGet) {
+    inFlightRequests.set(dedupeKey, fetchPromise);
+  }
+
+  return fetchPromise;
 };
 
-// Caching wrapper standardizing duplicate request prevention and short TTLs
-export const cachedAuthFetch = async (path: string, init: ApiRequestInit = {}, ttlSeconds = 15) => {
+// Caching wrapper with TTL, SWR (Stale-While-Revalidate) & Inflight Deduplication
+export const cachedAuthFetch = async (
+  path: string,
+  init: ApiRequestInit = {},
+  ttlSeconds = 60,
+  namespace: CacheNamespace = 'general',
+  swr = true
+) => {
   const cacheKey = path;
   const now = Date.now();
 
   if (clientCache.has(cacheKey)) {
     const cached = clientCache.get(cacheKey)!;
+    
+    // Fresh cache hit: instant return
     if (now < cached.expiry) {
-      if (cached.promise) return cached.promise;
-      return cached.params;
+      return cached.data;
     }
-    clientCache.delete(cacheKey); // Expired
+
+    // Stale-While-Revalidate: return stale data immediately and refresh background
+    if (swr && cached.data !== undefined) {
+      // Background revalidation
+      authFetch(path, { ...init, silent: true })
+        .then((freshData) => {
+          clientCache.set(cacheKey, {
+            data: freshData,
+            expiry: Date.now() + ttlSeconds * 1000,
+            namespace,
+          });
+        })
+        .catch(() => {
+          // Stale cache remains on network glitch
+        });
+      return cached.data;
+    }
+
+    clientCache.delete(cacheKey);
   }
 
-  // Deduplicate inflight requests
-  const promise = authFetch(path, init)
-    .then((res) => {
-      clientCache.set(cacheKey, { params: res, expiry: Date.now() + ttlSeconds * 1000 });
-      return res;
-    })
-    .catch((e) => {
-      clientCache.delete(cacheKey);
-      throw e;
-    });
-
-  clientCache.set(cacheKey, { params: null, expiry: now + ttlSeconds * 1000, promise });
-  return promise;
+  // Fetch & prime cache
+  const data = await authFetch(path, init);
+  clientCache.set(cacheKey, {
+    data,
+    expiry: Date.now() + ttlSeconds * 1000,
+    namespace,
+  });
+  return data;
 };
 
 export const loginUser = async (email: string, password: string) => {
@@ -219,10 +267,12 @@ export const getCurrentUser = async () => {
 };
 
 export const updateUser = async (userId: string, data: Partial<BackendUser>) => {
-  return authFetch(`/api/users/${userId}`, {
+  const res = await authFetch(`/api/users/${userId}`, {
     method: "PUT",
     body: JSON.stringify(data),
   });
+  invalidateCacheNamespaces(['user']);
+  return res;
 };
 
 export const adminCreateUser = async (data: {
@@ -232,15 +282,17 @@ export const adminCreateUser = async (data: {
   role: AppRole;
   restaurantId?: string;
 }) => {
-  return authFetch("/api/users", {
+  const res = await authFetch("/api/users", {
     method: "POST",
     body: JSON.stringify(data),
   });
+  invalidateCacheNamespaces(['user']);
+  return res;
 };
 
 // Restaurant APIs
 export const getRestaurants = async (silent = false) => {
-  return cachedAuthFetch("/api/restaurants", { method: "GET", silent }, 30);
+  return cachedAuthFetch("/api/restaurants", { method: "GET", silent }, 300, 'restaurant', true);
 };
 
 export const createRestaurant = async (data: {
@@ -250,32 +302,38 @@ export const createRestaurant = async (data: {
   email?: string;
   description?: string;
 }) => {
-  return authFetch("/api/restaurants", {
+  const res = await authFetch("/api/restaurants", {
     method: "POST",
     body: JSON.stringify(data),
   });
+  invalidateCacheNamespaces(['restaurant']);
+  return res;
 };
 
 export const getRestaurantById = async (restaurantId: string, silent = false) => {
-  return cachedAuthFetch(`/api/restaurants/${restaurantId}`, { method: "GET", silent }, 60);
+  return cachedAuthFetch(`/api/restaurants/${restaurantId}`, { method: "GET", silent }, 300, 'restaurant', true);
 };
 
 export const updateRestaurant = async (restaurantId: string, data: Record<string, unknown>) => {
-  return authFetch(`/api/restaurants/${restaurantId}`, {
+  const res = await authFetch(`/api/restaurants/${restaurantId}`, {
     method: "PUT",
     body: JSON.stringify(data),
   });
+  invalidateCacheNamespaces(['restaurant']);
+  return res;
 };
 
 export const deleteRestaurant = async (restaurantId: string) => {
-  return authFetch(`/api/restaurants/${restaurantId}`, { method: "DELETE" });
+  const res = await authFetch(`/api/restaurants/${restaurantId}`, { method: "DELETE" });
+  invalidateCacheNamespaces(['restaurant', 'menu', 'category', 'user']);
+  return res;
 };
 
 // Menu APIs
 export const getMenuItems = async (restaurantId: string, page = 1, limit = 500) => {
   return cachedAuthFetch(`/api/menu/restaurant/${restaurantId}?page=${page}&limit=${limit}`, {
     method: "GET",
-  }, 30); // 30 seconds frontend cache
+  }, 180, 'menu', true); // 3 minutes TTL with Stale-While-Revalidate
 };
 
 export const createMenuItem = async (data: {
@@ -288,21 +346,27 @@ export const createMenuItem = async (data: {
   isAvailable?: boolean;
   fulfillmentOwner?: "KITCHEN" | "WAITER";
 }) => {
-  return authFetch("/api/menu", {
+  const res = await authFetch("/api/menu", {
     method: "POST",
     body: JSON.stringify(data),
   });
+  invalidateCacheNamespaces(['menu', 'category']);
+  return res;
 };
 
 export const updateMenuItem = async (menuItemId: string, data: Record<string, unknown>) => {
-  return authFetch(`/api/menu/${menuItemId}`, {
+  const res = await authFetch(`/api/menu/${menuItemId}`, {
     method: "PUT",
     body: JSON.stringify(data),
   });
+  invalidateCacheNamespaces(['menu', 'category']);
+  return res;
 };
 
 export const deleteMenuItem = async (menuItemId: string) => {
-  return authFetch(`/api/menu/${menuItemId}`, { method: "DELETE" });
+  const res = await authFetch(`/api/menu/${menuItemId}`, { method: "DELETE" });
+  invalidateCacheNamespaces(['menu', 'category']);
+  return res;
 };
 
 // Category APIs
@@ -320,7 +384,7 @@ export type MenuCategory = {
 };
 
 export const getCategoriesByRestaurant = async (restaurantId: string) => {
-  return cachedAuthFetch(`/api/categories/restaurant/${restaurantId}`, { method: "GET" }, 30);
+  return cachedAuthFetch(`/api/categories/restaurant/${restaurantId}`, { method: "GET" }, 300, 'category', true);
 };
 
 export const getPublicCategoriesByRestaurant = async (restaurantId: string) => {
@@ -334,40 +398,48 @@ export const createCategory = async (data: {
   icon?: string;
   isActive?: boolean;
 }) => {
-  return authFetch("/api/categories", {
+  const res = await authFetch("/api/categories", {
     method: "POST",
     body: JSON.stringify(data),
   });
+  invalidateCacheNamespaces(['category', 'menu']);
+  return res;
 };
 
 export const updateCategory = async (categoryId: string, data: Partial<MenuCategory>) => {
-  return authFetch(`/api/categories/${categoryId}`, {
+  const res = await authFetch(`/api/categories/${categoryId}`, {
     method: "PUT",
     body: JSON.stringify(data),
   });
+  invalidateCacheNamespaces(['category', 'menu']);
+  return res;
 };
 
 export const deleteCategory = async (categoryId: string) => {
-  return authFetch(`/api/categories/${categoryId}`, { method: "DELETE" });
+  const res = await authFetch(`/api/categories/${categoryId}`, { method: "DELETE" });
+  invalidateCacheNamespaces(['category', 'menu']);
+  return res;
 };
 
 export const reorderCategories = async (restaurantId: string, categoryIds: string[]) => {
-  return authFetch(`/api/categories/restaurant/${restaurantId}/reorder`, {
+  const res = await authFetch(`/api/categories/restaurant/${restaurantId}/reorder`, {
     method: "PUT",
     body: JSON.stringify({ categoryIds }),
   });
+  invalidateCacheNamespaces(['category', 'menu']);
+  return res;
 };
 
-// Order APIs
+// Order APIs (Strict Live / No Stale Cache for 100% Real-Time Accuracy)
 export const getOrders = async (restaurantId: string, page = 1, limit = 20, status?: string, silent = false) => {
   let url = `/api/orders/restaurant/${restaurantId}?page=${page}&limit=${limit}`;
   if (status) {
     url += `&status=${status}`;
   }
-  return cachedAuthFetch(url, {
+  return authFetch(url, {
     method: "GET",
     silent,
-  }, 2.5);
+  });
 };
 
 export const getOrdersByTable = async (
@@ -376,12 +448,11 @@ export const getOrdersByTable = async (
   page = 1,
   limit = 20,
 ) => {
-  return cachedAuthFetch(
+  return authFetch(
     `/api/orders/restaurant/${restaurantId}/table/${tableNumber}?page=${page}&limit=${limit}`,
     {
       method: "GET",
-    },
-    2.5
+    }
   );
 };
 
@@ -482,10 +553,10 @@ export const createPayment = async (data: {
 };
 
 export const getPayments = async (restaurantId: string, page = 1, limit = 1000, silent = false) => {
-  return cachedAuthFetch(`/api/payments/restaurant/${restaurantId}?page=${page}&limit=${limit}`, {
+  return authFetch(`/api/payments/restaurant/${restaurantId}?page=${page}&limit=${limit}`, {
     method: "GET",
     silent,
-  }, 2.5);
+  });
 };
 
 export const refundPayment = async (paymentId: string, reason: string) => {
@@ -500,46 +571,54 @@ export const getUsersByRestaurant = async (restaurantId: string, page = 1, limit
   return cachedAuthFetch(`/api/users/restaurant/${restaurantId}?page=${page}&limit=${limit}`, {
     method: "GET",
     silent,
-  }, 15);
+  }, 30, 'user', true);
 };
 
 export const getAllUsers = async (page = 1, limit = 20, silent = false) => {
-  return cachedAuthFetch(`/api/users?page=${page}&limit=${limit}`, { method: "GET", silent }, 15);
+  return cachedAuthFetch(`/api/users?page=${page}&limit=${limit}`, { method: "GET", silent }, 30, 'user', true);
 };
 
 export const deactivateUser = async (userId: string) => {
-  return authFetch(`/api/users/${userId}/deactivate`, {
+  const res = await authFetch(`/api/users/${userId}/deactivate`, {
     method: "PUT",
   });
+  invalidateCacheNamespaces(['user']);
+  return res;
 };
 
 export const activateUser = async (userId: string) => {
-  return authFetch(`/api/users/${userId}/activate`, {
+  const res = await authFetch(`/api/users/${userId}/activate`, {
     method: "PUT",
   });
+  invalidateCacheNamespaces(['user']);
+  return res;
 };
 
 export const deleteUser = async (userId: string) => {
-  return authFetch(`/api/users/${userId}`, { method: "DELETE" });
+  const res = await authFetch(`/api/users/${userId}`, { method: "DELETE" });
+  invalidateCacheNamespaces(['user']);
+  return res;
 };
 
 // System Settings & Logs APIs
 export const getSystemSettings = async () => {
-  return cachedAuthFetch("/api/settings", { method: "GET" }, 60); // rarely changes
+  return cachedAuthFetch("/api/settings", { method: "GET" }, 600, 'settings', true);
 };
 
 export const updateSystemSettings = async (data: Record<string, unknown>) => {
-  return authFetch("/api/settings", {
+  const res = await authFetch("/api/settings", {
     method: "PUT",
     body: JSON.stringify(data),
   });
+  invalidateCacheNamespaces(['settings']);
+  return res;
 };
 
 export const getSystemLogs = async (type = "info", limit = 100) => {
   return authFetch(`/api/settings/logs?type=${type}&limit=${limit}`, { method: "GET" });
 };
 
-// Waiting Queue APIs
+// Waiting Queue APIs (Real-time live state)
 export type WaitingQueueEntry = {
   _id: string;
   id?: string;
@@ -566,7 +645,7 @@ export const getWaitingQueue = async (restaurantId: string, status?: string, all
   if (status) {
     url += `&status=${status}`;
   }
-  return cachedAuthFetch(url, { method: "GET", silent }, 3);
+  return authFetch(url, { method: "GET", silent });
 };
 
 export const addToWaitingQueue = async (data: {
@@ -618,14 +697,14 @@ export const prefetchDashboardData = (user: BackendUser) => {
       getMenuItems(restaurantId);
       getCategoriesByRestaurant(restaurantId);
       getOrders(restaurantId, 1, 100, undefined, true);
-      getWaitingQueue(restaurantId);
+      getWaitingQueue(restaurantId, undefined, false, true);
     } else if (role === 'cashier' && restaurantId) {
       getRestaurantById(restaurantId, true);
       getMenuItems(restaurantId, 1, 500);
       getCategoriesByRestaurant(restaurantId);
       getOrders(restaurantId, 1, 100, undefined, true);
       getPayments(restaurantId, 1, 50, true);
-      getWaitingQueue(restaurantId, undefined, false);
+      getWaitingQueue(restaurantId, undefined, false, true);
     } else if (role === 'chef' && restaurantId) {
       getMenuItems(restaurantId, 1, 500);
       getCategoriesByRestaurant(restaurantId);
@@ -645,3 +724,4 @@ export const prefetchDashboardData = (user: BackendUser) => {
     // Non-blocking prefetch; errors handled on component mount
   }
 };
+
