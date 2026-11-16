@@ -88,4 +88,14 @@ router.delete(
   }
 );
 
+// Resend verification OTP (MAIN_ADMIN and RESTAURANT_ADMIN)
+router.post(
+  '/:id/resend-otp',
+  authenticate,
+  authorize('MAIN_ADMIN', 'RESTAURANT_ADMIN'),
+  (req, res) => {
+    userController.resendVerificationOtp(req, res);
+  }
+);
+
 module.exports = router;

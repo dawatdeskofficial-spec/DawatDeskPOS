@@ -76,6 +76,54 @@ class AuthController {
       return sendError(res, error.message, 400);
     }
   }
+
+  // Send OTP
+  async sendOtp(req, res) {
+    try {
+      const { email, purpose = 'login' } = req.body;
+      if (!email) {
+        return sendError(res, 'Email is required', 400);
+      }
+
+      const result = await authService.requestOtp(email, purpose);
+      return sendSuccess(res, result.message, result, 200);
+    } catch (error) {
+      logger.error(`Send OTP error: ${error.message}`);
+      return sendError(res, error.message, 400);
+    }
+  }
+
+  // Verify OTP
+  async verifyOtp(req, res) {
+    try {
+      const { email, otp, purpose = 'login' } = req.body;
+      if (!email || !otp) {
+        return sendError(res, 'Email and OTP are required', 400);
+      }
+
+      await authService.verifyOtp(email, otp, purpose, false);
+      return sendSuccess(res, 'OTP verified successfully', { verified: true }, 200);
+    } catch (error) {
+      logger.error(`Verify OTP error: ${error.message}`);
+      return sendError(res, error.message, 400);
+    }
+  }
+
+  // Login with OTP
+  async loginWithOtp(req, res) {
+    try {
+      const { email, otp } = req.body;
+      if (!email || !otp) {
+        return sendError(res, 'Email and OTP code are required', 400);
+      }
+
+      const result = await authService.loginWithOtp(email, otp);
+      return sendSuccess(res, 'Login successful via OTP', result, 200);
+    } catch (error) {
+      logger.error(`Login with OTP controller error: ${error.message}`);
+      return sendError(res, error.message, 401);
+    }
+  }
 }
 
 module.exports = new AuthController();

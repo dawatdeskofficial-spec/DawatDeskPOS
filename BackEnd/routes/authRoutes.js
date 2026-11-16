@@ -19,4 +19,17 @@ router.get('/me', authenticate, (req, res) => {
   authController.getCurrentUser(req, res);
 });
 
+// OTP routes
+router.post('/send-otp', (req, res) => {
+  authController.sendOtp(req, res);
+});
+
+router.post('/verify-otp', (req, res) => {
+  authController.verifyOtp(req, res);
+});
+
+router.post('/login-otp', (req, res) => {
+  authController.loginWithOtp(req, res);
+});
+
 module.exports = router;

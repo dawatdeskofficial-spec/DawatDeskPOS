@@ -2,6 +2,7 @@ import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import {
   loginUser,
+  loginWithOtp,
   signupUser,
   getCurrentUser,
   updateUser as updateUserApi,
@@ -103,6 +104,19 @@ export const useAuthStore = defineStore('auth', () => {
     }
   }
 
+  async function signInWithOtp(email: string, otp: string) {
+    const response = await loginWithOtp(email, otp);
+    const payload = response.data as { user: BackendUser; token: string };
+    saveToken(payload.token);
+    if (payload.user) {
+      const normalizedRole = parseRole(payload.user.role) || "restaurant_admin";
+      payload.user.role = normalizedRole;
+      user.value = payload.user;
+      role.value = normalizedRole;
+      prefetchDashboardData(payload.user);
+    }
+  }
+
   async function signUp(name: string, email: string, password: string, r: AppRole) {
     const response = await signupUser(name, email, password, r);
     const payload = response.data as { user: BackendUser; token: string };
@@ -182,6 +196,7 @@ export const useAuthStore = defineStore('auth', () => {
     setInspectedRestaurant,
     initAuth,
     signIn,
+    signInWithOtp,
     signUp,
     signOut,
     refreshUser,

@@ -1,11 +1,11 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
-import { Plus, Edit3, Trash2, Search, X } from 'lucide-vue-next'
+import { Plus, Edit3, Trash2, Search, X, Mail, CheckCircle2, RefreshCw, ShieldCheck } from 'lucide-vue-next'
 import RoleLayout from '@/components/RoleLayout.vue'
 import PageHeader from '@/components/PageHeader.vue'
 import { adminNav } from '@/lib/nav'
 import type { BackendUser } from '@/lib/api'
-import { getAllUsers, adminCreateUser, updateUser, deleteUser, deactivateUser, activateUser, getRestaurants } from '@/lib/api'
+import { getAllUsers, adminCreateUser, updateUser, deleteUser, deactivateUser, activateUser, getRestaurants, sendOtp, verifyOtp, resendUserOtp } from '@/lib/api'
 import { useAuthStore } from '@/stores/auth'
 import Button from '@/components/ui/Button.vue'
 import Badge from '@/components/ui/Badge.vue'
@@ -80,6 +80,8 @@ onMounted(() => {
   fetchData();
 })
 
+const resendingOtpId = ref<string | null>(null);
+
 function resetForm() {
   formState.value = {
     name: "",
@@ -93,6 +95,21 @@ function resetForm() {
   activeUser.value = null;
   error.value = null;
   success.value = null;
+}
+
+async function handleResendOtp(u: BackendUser) {
+  const userId = u.id || (u as any)._id;
+  resendingOtpId.value = userId;
+  error.value = null;
+  try {
+    const res = await resendUserOtp(userId) as any;
+    success.value = res.message || `Verification OTP sent to ${u.email} from dawatdesk.official@gmail.com`;
+    setTimeout(() => { success.value = null; }, 5000);
+  } catch (err: any) {
+    error.value = err.message || "Failed to resend OTP";
+  } finally {
+    resendingOtpId.value = null;
+  }
 }
 
 function openCreateDialog() {
@@ -152,11 +169,11 @@ async function handleSave() {
       await updateUser(activeUser.value.id || (activeUser.value as any)._id, payload);
       success.value = "User updated successfully.";
     } else {
-      await adminCreateUser({
+      const res = await adminCreateUser({
         ...payload,
         email: formState.value.email.trim(),
-      });
-      success.value = "User created successfully.";
+      }) as any;
+      success.value = res.message || "User created! A verification OTP has been sent from dawatdesk.official@gmail.com to the user.";
     }
     await fetchData();
     isDialogOpen.value = false;
@@ -454,9 +471,18 @@ function formatDate(ds: string) {
               <Input v-model="formState.name" required />
             </label>
             <label class="space-y-2 text-sm font-medium">
-              <span>Email</span>
+              <span>Email Address</span>
               <Input type="email" v-model="formState.email" required />
             </label>
+          </div>
+
+          <!-- Notice: Credentials Welcome Email -->
+          <div v-if="!activeUser" class="p-3.5 rounded-xl border border-primary/20 bg-primary/5 flex items-start gap-2.5">
+            <Mail class="h-4.5 w-4.5 text-primary shrink-0 mt-0.5" />
+            <div class="text-xs text-muted-foreground leading-relaxed">
+              <strong class="text-foreground">Credentials Welcome Email:</strong>
+              Upon registration, a welcome email containing their <strong>Role</strong>, <strong>Assigned Restaurant</strong>, <strong>Email</strong>, and <strong>Password</strong> will be automatically dispatched to their Gmail from <span class="font-mono text-primary font-semibold">dawatdesk.official@gmail.com</span>.
+            </div>
           </div>
 
           <div class="grid gap-4 md:grid-cols-2">

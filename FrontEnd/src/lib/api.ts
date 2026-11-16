@@ -253,6 +253,27 @@ export const loginUser = async (email: string, password: string) => {
   });
 };
 
+export const sendOtp = async (email: string, purpose: 'login' | 'registration' = 'login') => {
+  return fetchJson("/api/auth/send-otp", {
+    method: "POST",
+    body: JSON.stringify({ email, purpose }),
+  });
+};
+
+export const verifyOtp = async (email: string, otp: string, purpose: 'login' | 'registration' = 'login') => {
+  return fetchJson("/api/auth/verify-otp", {
+    method: "POST",
+    body: JSON.stringify({ email, otp, purpose }),
+  });
+};
+
+export const loginWithOtp = async (email: string, otp: string) => {
+  return fetchJson("/api/auth/login-otp", {
+    method: "POST",
+    body: JSON.stringify({ email, otp }),
+  });
+};
+
 export const signupUser = async (name: string, email: string, password: string, role: AppRole) => {
   return fetchJson("/api/auth/signup", {
     method: "POST",
@@ -281,6 +302,9 @@ export const adminCreateUser = async (data: {
   password?: string;
   role: AppRole;
   restaurantId?: string;
+  phone?: string;
+  location?: string;
+  otp?: string;
 }) => {
   const res = await authFetch("/api/users", {
     method: "POST",
@@ -288,6 +312,12 @@ export const adminCreateUser = async (data: {
   });
   invalidateCacheNamespaces(['user']);
   return res;
+};
+
+export const resendUserOtp = async (userId: string) => {
+  return authFetch(`/api/users/${userId}/resend-otp`, {
+    method: "POST",
+  });
 };
 
 // Restaurant APIs

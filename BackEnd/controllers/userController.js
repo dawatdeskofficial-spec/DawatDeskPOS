@@ -1,7 +1,7 @@
 const userService = require('../services/userService');
 const { sendSuccess, sendError, sendPaginatedResponse } = require('../utils/responseHandler');
 const logger = require('../utils/logger');
-const { normalizeRole } = require('../utils/constants');
+const { normalizeRole, formatRoleForClient } = require('../utils/constants');
 
 const getId = (value) => {
   if (!value) return null;
@@ -33,13 +33,45 @@ class UserController {
         userData.restaurantId = getId(req.user.restaurantId);
       }
 
+      userData.isActive = true;
+      userData.isEmailVerified = true;
+
+      // Look up restaurant name for the welcome email
+      let restaurantName = 'All Venues (Main Admin)';
+      if (userData.restaurantId) {
+        const Restaurant = require('../models/Restaurant');
+        const rest = await Restaurant.findById(userData.restaurantId).select('name').lean();
+        if (rest && rest.name) {
+          restaurantName = rest.name;
+        }
+      }
+
       const user = await userService.createUser(userData);
+
+      // Send welcome email with login credentials (email, password, role, restaurant)
+      const displayRole = (typeof formatRoleForClient === 'function' ? formatRoleForClient(user.role) : user.role) || user.role;
+      try {
+        const emailService = require('../services/emailService');
+        await emailService.sendWelcomeCredentialsEmail(user.email, {
+          name: user.name,
+          role: displayRole,
+          restaurantName,
+          password: req.body.password || '',
+        });
+      } catch (mailErr) {
+        logger.warn(`Could not send welcome credentials email to ${user.email}: ${mailErr.message}`);
+      }
       
       // Exclude password from response
       const userResponse = user.toObject();
       delete userResponse.password;
 
-      return sendSuccess(res, 'User created successfully', userResponse, 201);
+      return sendSuccess(
+        res,
+        `User successfully registered as ${displayRole} at ${restaurantName}! Login credentials have been emailed to ${user.email}.`,
+        userResponse,
+        201
+      );
     } catch (error) {
       logger.error(`Create user error: ${error.message}`);
       return sendError(res, error.message, 400);
@@ -206,6 +238,23 @@ class UserController {
       return sendSuccess(res, 'User deleted successfully');
     } catch (error) {
       logger.error(`Delete user error: ${error.message}`);
+      return sendError(res, error.message, 400);
+    }
+  }
+
+  // Resend verification OTP to staff member's email
+  async resendVerificationOtp(req, res) {
+    try {
+      const { id } = req.params;
+      const user = await userService.getUserById(id);
+      if (!user) {
+        return sendError(res, 'User not found', 404);
+      }
+      const authService = require('../services/authService');
+      const result = await authService.requestOtp(user.email, 'registration');
+      return sendSuccess(res, `Verification OTP resent to ${user.email} from dawatdesk.official@gmail.com`, result, 200);
+    } catch (error) {
+      logger.error(`Resend verification OTP error: ${error.message}`);
       return sendError(res, error.message, 400);
     }
   }
