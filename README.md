@@ -1,11 +1,11 @@
-# Servia - Restaurant Management System
+# DawatDesk - Restaurant Management System
 
-Servia is a full-stack restaurant operations app with role dashboards for platform admins, restaurant admins, waiters, chefs, and cashiers. The backend is an Express.js + MongoDB/Mongoose REST API; the frontend is React + TypeScript + TanStack Router + Tailwind.
+DawatDesk is a full-stack restaurant operations app with role dashboards for platform admins, restaurant admins, waiters, chefs, and cashiers. The backend is an Express.js + MongoDB/Mongoose REST API; the frontend is Vue 3 + TypeScript + Tailwind.
 
 ## Project Structure
 
 - `BackEnd/`: Express.js + Mongoose REST API.
-- `flavor-fusion-os/`: React + Vite + TypeScript web application.
+- `FrontEnd/`: Vue 3 + Vite + TypeScript web application.
 
 ## Prerequisites
 
@@ -44,7 +44,7 @@ Servia is a full-stack restaurant operations app with role dashboards for platfo
 
 1. Open a new terminal and navigate to the frontend directory:
    ```bash
-   cd flavor-fusion-os
+   cd FrontEnd
    ```
 2. Install dependencies:
    ```bash
