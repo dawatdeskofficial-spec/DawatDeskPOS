@@ -52,4 +52,6 @@ createAdmin.js
 setupMainAdmin.js
 fix_data.js
 seedDosaMenu.js
+# Storage & generated invoices
+public/invoices/*.pdf
 .vercel

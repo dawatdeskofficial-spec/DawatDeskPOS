@@ -8,6 +8,7 @@ import {
   updateUser as updateUserApi,
   saveToken,
   prefetchDashboardData,
+  getHotelFacilityStatus,
 } from '@/lib/api'
 
 export type AppRole = "main_admin" | "restaurant_admin" | "waiter" | "chef" | "cashier";
@@ -60,6 +61,25 @@ export const useAuthStore = defineStore('auth', () => {
   const user = ref<BackendUser | null>(null);
   const role = ref<AppRole | null>(null);
   const loading = ref(true);
+  const restaurantFacilities = ref<{ hotelRoomManagement?: boolean }>({});
+
+  async function fetchRestaurantFacilities(rId?: string) {
+    const targetId = rId || effectiveRestaurantId.value;
+    if (!targetId && role.value !== 'main_admin') return;
+    try {
+      const res = (await getHotelFacilityStatus(targetId || undefined)) as any;
+      if (res?.data) {
+        restaurantFacilities.value = res.data.facilities || {
+          hotelRoomManagement: Boolean(res.data.hotelRoomManagement),
+        };
+        if (user.value && typeof user.value.restaurantId === 'object' && user.value.restaurantId) {
+          (user.value.restaurantId as any).facilities = restaurantFacilities.value;
+        }
+      }
+    } catch {
+      // Quiet fail if network/permission issue
+    }
+  }
 
   async function initAuth() {
     const token = typeof window !== "undefined" ? window.localStorage.getItem(TOKEN_STORAGE_KEY) : null;
@@ -80,6 +100,7 @@ export const useAuthStore = defineStore('auth', () => {
         user.value = userData;
         role.value = normalizedRole;
         prefetchDashboardData(userData);
+        fetchRestaurantFacilities();
       }
     } catch (error) {
       console.error("Failed to refresh user:", error);
@@ -101,6 +122,7 @@ export const useAuthStore = defineStore('auth', () => {
       user.value = payload.user;
       role.value = normalizedRole;
       prefetchDashboardData(payload.user);
+      fetchRestaurantFacilities();
     }
   }
 
@@ -114,6 +136,7 @@ export const useAuthStore = defineStore('auth', () => {
       user.value = payload.user;
       role.value = normalizedRole;
       prefetchDashboardData(payload.user);
+      fetchRestaurantFacilities();
     }
   }
 
@@ -133,6 +156,7 @@ export const useAuthStore = defineStore('auth', () => {
     saveToken(null);
     user.value = null;
     role.value = null;
+    restaurantFacilities.value = {};
   }
 
   async function refreshUser() {
@@ -144,6 +168,7 @@ export const useAuthStore = defineStore('auth', () => {
         userData.role = normalizedRole;
         user.value = userData;
         role.value = normalizedRole;
+        await fetchRestaurantFacilities();
       }
     } catch (error) {
       console.error("Refresh user failed:", error);
@@ -191,6 +216,8 @@ export const useAuthStore = defineStore('auth', () => {
     user,
     role,
     loading,
+    restaurantFacilities,
+    fetchRestaurantFacilities,
     inspectedRestaurantId,
     effectiveRestaurantId,
     setInspectedRestaurant,

@@ -19,6 +19,7 @@ import {
   UtensilsCrossed,
   Wallet,
   Monitor,
+  BedDouble,
 } from "lucide-vue-next";
 
 export interface NavItem {
@@ -56,3 +57,15 @@ export const chefNav: NavItem[] = [
 export const cashierNav: NavItem[] = [
   { to: "/cashier", label: "Billing & POS", icon: Receipt },
 ];
+
+export const hotelAdminNavItem: NavItem = {
+  to: "/restaurant/hotel",
+  label: "Hotel Rooms",
+  icon: BedDouble,
+};
+
+export const hotelCashierNavItem: NavItem = {
+  to: "/cashier/hotel",
+  label: "Hotel Rooms",
+  icon: BedDouble,
+};

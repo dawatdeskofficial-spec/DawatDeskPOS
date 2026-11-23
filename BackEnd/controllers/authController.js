@@ -58,7 +58,12 @@ class AuthController {
   // Get current user
   async getCurrentUser(req, res) {
     try {
-      const rawUser = req.user || await authService.getUserById(req.user?.userId);
+      const userId = req.user?.id || req.user?.userId || req.user?._id;
+      if (!userId) {
+        return sendError(res, 'User ID missing in token', 401);
+      }
+      // Retrieve the latest user profile with populated restaurant and facilities
+      const rawUser = await authService.getUserById(userId, true);
       if (!rawUser) {
         return sendError(res, 'User not found', 404);
       }

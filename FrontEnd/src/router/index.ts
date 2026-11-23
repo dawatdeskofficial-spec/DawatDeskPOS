@@ -16,10 +16,11 @@ const routes = [
   { path: '/restaurant/menu', component: () => import('@/views/restaurant/Menu.vue') },
   { path: '/restaurant/staff', component: () => import('@/views/restaurant/Staff.vue') },
   { path: '/restaurant/reports', component: () => import('@/views/restaurant/Reports.vue') },
+  { path: '/restaurant/hotel', component: () => import('@/views/restaurant/Hotel.vue') },
   { path: '/waiter', component: () => import('@/views/waiter/index.vue') },
   { path: '/chef', component: () => import('@/views/chef/index.vue') },
   { path: '/cashier', component: () => import('@/views/cashier/index.vue') },
-  { path: '/customer-ordering', component: () => import('@/views/customer-ordering/index.vue') },
+  { path: '/cashier/hotel', component: () => import('@/views/cashier/Hotel.vue') },
   { path: '/service-unavailable', component: () => import('@/views/ServiceUnavailable.vue') },
   { path: '/profile', component: () => import('@/views/Profile.vue') },
   { path: '/:pathMatch(.*)*', redirect: '/' }
@@ -81,6 +82,14 @@ router.beforeEach(async (to, from, next) => {
 
   // 5. Role-based access control: prevent non-main_admin from accessing /admin/* routes
   if (to.path.startsWith('/admin') && role !== 'main_admin') {
+    return next(homePath || '/login')
+  }
+
+  // 6. Hotel Room Management module role check
+  if (to.path === '/restaurant/hotel' && role !== 'main_admin' && role !== 'restaurant_admin') {
+    return next(homePath || '/login')
+  }
+  if (to.path === '/cashier/hotel' && role !== 'cashier' && role !== 'restaurant_admin' && role !== 'main_admin') {
     return next(homePath || '/login')
   }
 

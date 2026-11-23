@@ -575,10 +575,18 @@ export const createPayment = async (data: {
   subtotal: number;
   discount?: number;
   paymentMethod: "CASH" | "CARD" | "DIGITAL_WALLET" | "CHEQUE";
+  sendWhatsAppBill?: boolean;
+  customerPhone?: string;
+  customerName?: string;
+  clientBaseUrl?: string;
 }) => {
+  const payload = {
+    ...data,
+    clientBaseUrl: data.clientBaseUrl || (typeof window !== "undefined" ? window.location.origin : undefined),
+  };
   return authFetch("/api/payments", {
     method: "POST",
-    body: JSON.stringify(data),
+    body: JSON.stringify(payload),
   });
 };
 
@@ -754,4 +762,326 @@ export const prefetchDashboardData = (user: BackendUser) => {
     // Non-blocking prefetch; errors handled on component mount
   }
 };
+
+// ── WhatsApp APIs ─────────────────────────────────────────────────────────────
+export interface WhatsAppDeliveryInfo {
+  _id?: string;
+  id?: string;
+  restaurantId: string;
+  orderId: string;
+  paymentId: string;
+  receiptNumber: string;
+  customerName?: string;
+  recipientPhone: string;
+  formattedPhone?: string;
+  deliveryMethod: 'AUTOMATIC' | 'MANUAL_WAME';
+  deliveryStatus: 'PENDING' | 'PROCESSING' | 'ACCEPTED' | 'SENT' | 'DELIVERED' | 'READ' | 'FAILED';
+  providerMessageId?: string;
+  errorCode?: string;
+  errorMessage?: string;
+  retryCount: number;
+  pdfUrl?: string;
+  sentAt?: string;
+  deliveredAt?: string;
+  readAt?: string;
+  failedAt?: string;
+  manualConfirmedAt?: string;
+}
+
+export const sendWhatsAppBill = async (data: {
+  paymentId: string;
+  customerPhone?: string;
+  customerName?: string;
+  forceRetry?: boolean;
+  clientBaseUrl?: string;
+}) => {
+  const payload = {
+    ...data,
+    clientBaseUrl: data.clientBaseUrl || (typeof window !== "undefined" ? window.location.origin : undefined),
+  };
+  return authFetch("/api/whatsapp/send-bill", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+};
+
+export const getWhatsAppDeliveryStatus = async (paymentId: string) => {
+  return authFetch(`/api/whatsapp/delivery-status/${paymentId}`, {
+    method: "GET",
+  });
+};
+
+export const confirmManualWhatsAppSend = async (data: {
+  paymentId: string;
+  notes?: string;
+}) => {
+  return authFetch("/api/whatsapp/confirm-manual", {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
+};
+
+export const getWhatsAppConfig = async (restaurantId: string) => {
+  return authFetch(`/api/whatsapp/config/${restaurantId}`, {
+    method: "GET",
+  });
+};
+
+export const updateWhatsAppConfig = async (restaurantId: string, data: any) => {
+  return authFetch(`/api/whatsapp/config/${restaurantId}`, {
+    method: "PUT",
+    body: JSON.stringify(data),
+  });
+};
+
+export const testWhatsAppConnection = async (restaurantId: string) => {
+  return authFetch(`/api/whatsapp/config/${restaurantId}/test`, {
+    method: "POST",
+  });
+};
+
+// ── HOTEL ROOM MANAGEMENT API ───────────────────────────────────────────────
+
+export const toggleHotelFacility = async (restaurantId: string, isEnabled: boolean) => {
+  return authFetch(`/api/hotel/facility/${restaurantId}`, {
+    method: "PATCH",
+    body: JSON.stringify({ isEnabled }),
+  });
+};
+
+export const getHotelFacilityStatus = async (restaurantId?: string) => {
+  const url = restaurantId ? `/api/hotel/facility-status/${restaurantId}` : `/api/hotel/facility-status`;
+  return authFetch(url, {
+    method: "GET",
+  });
+};
+
+export const getHotelRoomTypes = async (restaurantId?: string, activeOnly = false) => {
+  const query = new URLSearchParams();
+  if (restaurantId) query.append("restaurantId", restaurantId);
+  if (activeOnly) query.append("activeOnly", "true");
+  const qs = query.toString();
+  return authFetch(`/api/hotel/room-types${qs ? `?${qs}` : ""}`, {
+    method: "GET",
+  });
+};
+
+export const createHotelRoomType = async (data: any, restaurantId?: string) => {
+  const payload = restaurantId ? { ...data, restaurantId } : data;
+  return authFetch("/api/hotel/room-types", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+};
+
+export const updateHotelRoomType = async (id: string, data: any, restaurantId?: string) => {
+  const payload = restaurantId ? { ...data, restaurantId } : data;
+  return authFetch(`/api/hotel/room-types/${id}`, {
+    method: "PUT",
+    body: JSON.stringify(payload),
+  });
+};
+
+export const toggleHotelRoomType = async (id: string, restaurantId?: string) => {
+  const query = restaurantId ? `?restaurantId=${restaurantId}` : "";
+  return authFetch(`/api/hotel/room-types/${id}/toggle${query}`, {
+    method: "PATCH",
+  });
+};
+
+export const getHotelRooms = async (params: any = {}, restaurantId?: string) => {
+  const query = new URLSearchParams();
+  if (restaurantId) query.append("restaurantId", restaurantId);
+  Object.keys(params).forEach((k) => {
+    if (params[k] !== undefined && params[k] !== null && params[k] !== "") {
+      query.append(k, String(params[k]));
+    }
+  });
+  const qs = query.toString();
+  return authFetch(`/api/hotel/rooms${qs ? `?${qs}` : ""}`, {
+    method: "GET",
+  });
+};
+
+export const getHotelRoomById = async (id: string, restaurantId?: string) => {
+  const query = restaurantId ? `?restaurantId=${restaurantId}` : "";
+  return authFetch(`/api/hotel/rooms/${id}${query}`, {
+    method: "GET",
+  });
+};
+
+export const createHotelRoom = async (data: any, restaurantId?: string) => {
+  const payload = restaurantId ? { ...data, restaurantId } : data;
+  return authFetch("/api/hotel/rooms", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+};
+
+export const updateHotelRoom = async (id: string, data: any, restaurantId?: string) => {
+  const payload = restaurantId ? { ...data, restaurantId } : data;
+  return authFetch(`/api/hotel/rooms/${id}`, {
+    method: "PUT",
+    body: JSON.stringify(payload),
+  });
+};
+
+export const toggleHotelRoom = async (id: string, restaurantId?: string) => {
+  const query = restaurantId ? `?restaurantId=${restaurantId}` : "";
+  return authFetch(`/api/hotel/rooms/${id}/toggle${query}`, {
+    method: "PATCH",
+  });
+};
+
+export const deleteHotelRoom = async (id: string, restaurantId?: string) => {
+  const query = restaurantId ? `?restaurantId=${restaurantId}` : "";
+  return authFetch(`/api/hotel/rooms/${id}${query}`, {
+    method: "DELETE",
+  });
+};
+
+export const updateRoomHousekeeping = async (
+  id: string,
+  status: 'AVAILABLE' | 'CLEANING' | 'MAINTENANCE',
+  maintenanceReason = '',
+  restaurantId?: string
+) => {
+  const payload = { status, maintenanceReason, ...(restaurantId ? { restaurantId } : {}) };
+  return authFetch(`/api/hotel/rooms/${id}/housekeeping`, {
+    method: "PATCH",
+    body: JSON.stringify(payload),
+  });
+};
+
+export const checkHotelAvailability = async (params: {
+  checkInDate: string;
+  checkOutDate: string;
+  roomTypeId?: string;
+  restaurantId?: string;
+}) => {
+  const query = new URLSearchParams();
+  query.append("checkInDate", params.checkInDate);
+  query.append("checkOutDate", params.checkOutDate);
+  if (params.roomTypeId) query.append("roomTypeId", params.roomTypeId);
+  if (params.restaurantId) query.append("restaurantId", params.restaurantId);
+  return authFetch(`/api/hotel/availability?${query.toString()}`, {
+    method: "GET",
+  });
+};
+
+export const getHotelBookings = async (params: any = {}, restaurantId?: string) => {
+  const query = new URLSearchParams();
+  if (restaurantId) query.append("restaurantId", restaurantId);
+  Object.keys(params).forEach((k) => {
+    if (params[k] !== undefined && params[k] !== null && params[k] !== "") {
+      query.append(k, String(params[k]));
+    }
+  });
+  return authFetch(`/api/hotel/bookings?${query.toString()}`, {
+    method: "GET",
+  });
+};
+
+export const getHotelBookingById = async (id: string, restaurantId?: string) => {
+  const query = restaurantId ? `?restaurantId=${restaurantId}` : "";
+  return authFetch(`/api/hotel/bookings/${id}${query}`, {
+    method: "GET",
+  });
+};
+
+export const createHotelBooking = async (data: any, restaurantId?: string) => {
+  const payload = restaurantId ? { ...data, restaurantId } : data;
+  return authFetch("/api/hotel/bookings", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+};
+
+export const checkInHotelGuest = async (id: string, data: any = {}, restaurantId?: string) => {
+  const payload = restaurantId ? { ...data, restaurantId } : data;
+  return authFetch(`/api/hotel/bookings/${id}/checkin`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+};
+
+export const extendHotelStay = async (id: string, data: { newCheckOutDate: string }, restaurantId?: string) => {
+  const payload = restaurantId ? { ...data, restaurantId } : data;
+  return authFetch(`/api/hotel/bookings/${id}/extend`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+};
+
+export const addHotelCharge = async (id: string, data: { title: string; amount: number }, restaurantId?: string) => {
+  const payload = restaurantId ? { ...data, restaurantId } : data;
+  return authFetch(`/api/hotel/bookings/${id}/charges`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+};
+
+export const checkoutHotelGuest = async (id: string, data: any = {}, restaurantId?: string) => {
+  const payload = restaurantId ? { ...data, restaurantId } : data;
+  return authFetch(`/api/hotel/bookings/${id}/checkout`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+};
+
+export const cancelHotelBooking = async (id: string, reason: string, restaurantId?: string) => {
+  const payload = { reason, ...(restaurantId ? { restaurantId } : {}) };
+  return authFetch(`/api/hotel/bookings/${id}/cancel`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+};
+
+export const getHotelInvoices = async (params: any = {}, restaurantId?: string) => {
+  const query = new URLSearchParams();
+  if (restaurantId) query.append("restaurantId", restaurantId);
+  Object.keys(params).forEach((k) => {
+    if (params[k] !== undefined && params[k] !== null && params[k] !== "") {
+      query.append(k, String(params[k]));
+    }
+  });
+  return authFetch(`/api/hotel/invoices?${query.toString()}`, {
+    method: "GET",
+  });
+};
+
+export const getHotelInvoiceById = async (id: string, restaurantId?: string) => {
+  const query = restaurantId ? `?restaurantId=${restaurantId}` : "";
+  return authFetch(`/api/hotel/invoices/${id}${query}`, {
+    method: "GET",
+  });
+};
+
+export const getHotelDashboardStats = async (restaurantId?: string) => {
+  const query = restaurantId ? `?restaurantId=${restaurantId}` : "";
+  return authFetch(`/api/hotel/dashboard${query}`, {
+    method: "GET",
+  });
+};
+
+export const getHotelReports = async (params: any = {}, restaurantId?: string) => {
+  const query = new URLSearchParams();
+  if (restaurantId) query.append("restaurantId", restaurantId);
+  Object.keys(params).forEach((k) => {
+    if (params[k] !== undefined && params[k] !== null && params[k] !== "") {
+      query.append(k, String(params[k]));
+    }
+  });
+  return authFetch(`/api/hotel/reports?${query.toString()}`, {
+    method: "GET",
+  });
+};
+
+export const getHotelInvoicePdfUrl = (id: string, restaurantId?: string) => {
+  const base = getApiBaseUrl();
+  const query = restaurantId ? `?restaurantId=${restaurantId}` : "";
+  return `${base}/api/hotel/invoices/${id}/pdf${query}`;
+};
+
+
 

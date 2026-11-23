@@ -735,7 +735,7 @@ function handleWaiterNavTab(tab: string) {
     <!-- ══════════════════════════════════════════ -->
     <!--  Top Segmented Navigation Tab Bar          -->
     <!-- ══════════════════════════════════════════ -->
-    <div class="flex items-center justify-center mb-6">
+    <div :class="['flex items-center justify-center', table ? 'mb-2.5' : 'mb-6']">
       <div class="grid grid-cols-3 gap-1 p-1 rounded-2xl bg-muted/60 max-w-lg w-full border border-border/60 shadow-xs">
           <!-- Take Order Tab -->
           <button
@@ -1083,53 +1083,54 @@ function handleWaiterNavTab(tab: string) {
     <!--  4. TAKE ORDER — Menu Ordering POS Mode    -->
     <!-- ══════════════════════════════════════════ -->
     <template v-else>
-      <!-- Sub-header: Table Details, Active bill badge, and View Mode Switcher -->
-      <div class="flex items-center justify-between gap-2.5 mb-3.5">
-        <div class="flex items-center gap-2 min-w-0">
-          <button
-            @click="table = null"
-            class="h-9 w-9 rounded-xl border border-border bg-card hover:bg-muted flex items-center justify-center shadow-xs transition shrink-0"
-            title="Change Table"
-          >
-            <ArrowLeft class="h-4 w-4" />
-          </button>
-          <div class="min-w-0">
-            <div class="flex items-center gap-1.5">
-              <h1 class="font-display text-lg sm:text-xl font-bold leading-none truncate">Table {{ table }}</h1>
-              <span class="px-2 py-0.5 rounded-md bg-primary/10 text-primary text-[10px] font-bold uppercase">
-                POS
-              </span>
+      <div class="flex flex-col">
+        <!-- Sub-header: Table Details, Active bill badge, and View Mode Switcher -->
+        <div class="shrink-0 flex items-center justify-between gap-2.5 mb-2.5">
+          <div class="flex items-center gap-2 min-w-0">
+            <button
+              @click="table = null"
+              class="h-9 w-9 rounded-xl border border-border bg-card hover:bg-muted flex items-center justify-center shadow-xs transition shrink-0"
+              title="Change Table"
+            >
+              <ArrowLeft class="h-4 w-4" />
+            </button>
+            <div class="min-w-0">
+              <div class="flex items-center gap-1.5">
+                <h1 class="font-display text-lg sm:text-xl font-bold leading-none truncate">Table {{ table }}</h1>
+                <span class="px-2 py-0.5 rounded-md bg-primary/10 text-primary text-[10px] font-bold uppercase">
+                  POS
+                </span>
+              </div>
+              <p class="text-[11px] text-muted-foreground truncate mt-0.5">Punch in items below</p>
             </div>
-            <p class="text-[11px] text-muted-foreground truncate mt-0.5">Punch in items below</p>
+          </div>
+
+          <!-- Right: Cart Indicator & Active Bill Pill -->
+          <div class="flex items-center gap-1.5 shrink-0">
+            <button
+              v-if="cart.length > 0"
+              @click="mobileCartOpen = true"
+              class="h-9 px-3 rounded-xl gradient-primary text-primary-foreground flex items-center gap-1.5 text-xs font-bold shadow-xs cursor-pointer active:scale-95 transition"
+              title="View Cart & Place Order"
+            >
+              <ShoppingBag class="h-3.5 w-3.5" />
+              <span>{{ totalCartItems }} items · ₹{{ total.toFixed(0) }}</span>
+            </button>
+
+            <button
+              v-if="activeOrderForTable"
+              @click="activeOrderModalOpen = true"
+              class="h-9 px-2.5 rounded-xl border border-primary/40 bg-primary/10 hover:bg-primary/20 text-primary flex items-center gap-1.5 text-xs font-bold shadow-xs transition cursor-pointer"
+            >
+              <Receipt class="h-3.5 w-3.5" />
+              <span class="hidden sm:inline">Active Bill:</span>
+              <span>₹{{ (activeOrderForTable.totalAmount || 0).toFixed(0) }}</span>
+            </button>
           </div>
         </div>
 
-        <!-- Right: Cart Indicator & Active Bill Pill -->
-        <div class="flex items-center gap-1.5 shrink-0">
-          <button
-            v-if="cart.length > 0"
-            @click="mobileCartOpen = true"
-            class="h-9 px-3 rounded-xl gradient-primary text-primary-foreground flex items-center gap-1.5 text-xs font-bold shadow-xs cursor-pointer active:scale-95 transition"
-            title="View Cart & Place Order"
-          >
-            <ShoppingBag class="h-3.5 w-3.5" />
-            <span>{{ totalCartItems }} items · ₹{{ total.toFixed(0) }}</span>
-          </button>
-
-          <button
-            v-if="activeOrderForTable"
-            @click="activeOrderModalOpen = true"
-            class="h-9 px-2.5 rounded-xl border border-primary/40 bg-primary/10 hover:bg-primary/20 text-primary flex items-center gap-1.5 text-xs font-bold shadow-xs transition cursor-pointer"
-          >
-            <Receipt class="h-3.5 w-3.5" />
-            <span class="hidden sm:inline">Active Bill:</span>
-            <span>₹{{ (activeOrderForTable.totalAmount || 0).toFixed(0) }}</span>
-          </button>
-        </div>
-      </div>
-
-      <!-- ── Active Order Kitchen Status Banner (Interactive Workflow) ── -->
-      <div v-if="activeOrderForTable" class="mb-4">
+        <!-- ── Active Order Kitchen Status Banner (Interactive Workflow) ── -->
+        <div v-if="activeOrderForTable" class="shrink-0 mb-2.5">
         <!-- 1. PENDING: Chef has NOT pressed Start Cooking (Waiter CAN update order) -->
         <div
           v-if="isOrderPending"
@@ -1252,11 +1253,18 @@ function handleWaiterNavTab(tab: string) {
         </div>
       </div>
 
-      <!-- Main Ordering Area: Two-Column (Menu + Desktop Sticky Cart) -->
-      <div class="grid grid-cols-1 xl:grid-cols-[1fr_380px] gap-6 items-start pb-24 lg:pb-8">
-        
-        <!-- Left: Search + Category Pills + Menu Items Grid / List -->
-        <div class="min-w-0 space-y-3">
+        <!-- Main Ordering Area: Two-Column (Menu + Desktop Fixed Ticket) -->
+        <div
+          :class="[
+            'grid grid-cols-1 lg:grid-cols-[1fr_360px] xl:grid-cols-[1fr_390px] gap-5 items-stretch pb-24 lg:pb-0',
+            activeOrderForTable ? 'lg:h-[calc(100vh-17.5rem)]' : 'lg:h-[calc(100vh-13.5rem)]'
+          ]"
+        >
+          <!-- Left: Search + Category Pills (Fixed) + Menu Items (Independent Scroll) -->
+          <div class="min-w-0 flex flex-col h-full min-h-0">
+            
+            <!-- Pinned Search Bar + Category Pills at top of menu -->
+            <div class="shrink-0 space-y-2.5 pb-2.5">
           
           <!-- Search Bar -->
           <div class="relative">
@@ -1304,9 +1312,12 @@ function handleWaiterNavTab(tab: string) {
             <span class="ml-auto text-xs text-muted-foreground font-medium hidden sm:inline whitespace-nowrap">
               {{ filteredMenuItems.length }} item{{ filteredMenuItems.length !== 1 ? 's' : '' }}
             </span>
+            </div>
           </div>
 
-          <!-- Zero Match Search State -->
+          <!-- Independent Scrollable Menu Container (Menu items scroll, Ticket stays fixed) -->
+          <div class="flex-1 min-h-0 lg:overflow-y-auto pr-0 lg:pr-1.5 pb-20 lg:pb-3 scrollbar-thin">
+            <!-- Zero Match Search State -->
           <div v-if="filteredMenuItems.length === 0" class="rounded-3xl border-2 border-dashed border-border p-10 text-center text-muted-foreground">
             <Search class="h-8 w-8 mx-auto mb-2 opacity-30 text-muted-foreground" />
             <p class="font-semibold text-xs sm:text-sm">No dishes found{{ menuSearch ? ` matching "${menuSearch}"` : ' in this category' }}.</p>
@@ -1457,74 +1468,76 @@ function handleWaiterNavTab(tab: string) {
             </div>
           </div>
         </div>
+      </div>
 
-        <!-- ── Right: Desktop Sticky Cart Sidebar ── -->
-        <aside class="hidden lg:flex flex-col rounded-3xl bg-card border border-border shadow-card sticky top-20 max-h-[calc(100vh-6rem)] overflow-hidden">
-          <!-- Cart Header -->
-          <div class="p-4 border-b border-border flex items-center justify-between shrink-0 bg-muted/20">
-            <div>
-              <div class="font-display text-base font-bold">Table {{ table }} Ticket</div>
-              <div class="text-xs text-muted-foreground">{{ totalCartItems }} items in order</div>
-            </div>
-            <button @click="table = null" class="text-xs text-muted-foreground hover:text-foreground transition px-2 py-1 rounded-lg hover:bg-muted">
-              Change Table
-            </button>
+      <!-- ── Right: Desktop Fixed Ticket Sidebar (Fixed: Never scrolls with menu!) ── -->
+      <aside class="hidden lg:flex flex-col rounded-3xl bg-card border border-border shadow-card h-full min-h-0 overflow-hidden shrink-0">
+        <!-- Cart Header -->
+        <div class="p-3 sm:px-4 sm:py-2.5 border-b border-border flex items-center justify-between shrink-0 bg-muted/20">
+          <div>
+            <div class="font-display text-sm sm:text-base font-bold">Table {{ table }} Ticket</div>
+            <div class="text-[11px] text-muted-foreground">{{ totalCartItems }} items in order</div>
           </div>
+          <button @click="table = null" class="text-xs text-muted-foreground hover:text-foreground transition px-2 py-1 rounded-lg hover:bg-muted">
+            Change Table
+          </button>
+        </div>
 
-          <!-- Items list -->
-          <div class="flex-1 overflow-y-auto p-3 space-y-2">
-            <div v-if="cart.length === 0" class="text-center py-12 text-muted-foreground text-xs flex flex-col items-center gap-2">
-              <ShoppingBag class="h-8 w-8 opacity-20" />
-              <span>Cart is empty.<br />Tap menu items to add.</span>
-            </div>
-            <div v-for="l in cart" :key="l.id" class="p-2.5 rounded-2xl bg-muted/30 border border-border/40 space-y-1.5">
-              <div class="flex items-center justify-between gap-2">
-                <div class="flex items-center gap-2 min-w-0">
-                  <span class="text-lg">{{ l.emoji }}</span>
-                  <div class="min-w-0">
-                    <div class="font-semibold text-xs truncate">{{ l.name }}</div>
-                    <div class="text-[10px] text-muted-foreground">₹{{ l.price.toFixed(0) }} × {{ l.qty }} = <strong>₹{{ (l.price * l.qty).toFixed(0) }}</strong></div>
-                  </div>
+        <!-- Items list (Only cart items scroll if many items) -->
+        <div class="flex-1 min-h-0 overflow-y-auto p-3 space-y-2">
+          <div v-if="cart.length === 0" class="text-center py-10 text-muted-foreground text-xs flex flex-col items-center gap-2">
+            <ShoppingBag class="h-8 w-8 opacity-20" />
+            <span>Cart is empty.<br />Tap menu items to add.</span>
+          </div>
+          <div v-for="l in cart" :key="l.id" class="p-2.5 rounded-2xl bg-muted/30 border border-border/40 space-y-1.5">
+            <div class="flex items-center justify-between gap-2">
+              <div class="flex items-center gap-2 min-w-0">
+                <span class="text-lg">{{ l.emoji }}</span>
+                <div class="min-w-0">
+                  <div class="font-semibold text-xs truncate">{{ l.name }}</div>
+                  <div class="text-[10px] text-muted-foreground">₹{{ l.price.toFixed(0) }} × {{ l.qty }} = <strong>₹{{ (l.price * l.qty).toFixed(0) }}</strong></div>
                 </div>
-                <div class="flex items-center gap-1 shrink-0">
-                  <button @click="dec(l.id)" class="h-6 w-6 grid place-items-center rounded-lg bg-background hover:bg-muted border border-border transition">
-                    <Minus class="h-3 w-3" />
-                  </button>
-                  <span class="w-5 text-center text-xs font-bold tabular-nums">{{ l.qty }}</span>
-                  <button @click="add(menuItems.find(m => m.id === l.id)!)" class="h-6 w-6 grid place-items-center rounded-lg bg-background hover:bg-muted border border-border transition">
-                    <Plus class="h-3 w-3" />
-                  </button>
-                  <button @click="remove(l.id)" class="h-6 w-6 grid place-items-center rounded-lg text-destructive hover:bg-destructive/10 ml-0.5 transition">
-                    <Trash2 class="h-3 w-3" />
-                  </button>
-                </div>
+              </div>
+              <div class="flex items-center gap-1 shrink-0">
+                <button @click="dec(l.id)" class="h-6 w-6 grid place-items-center rounded-lg bg-background hover:bg-muted border border-border transition">
+                  <Minus class="h-3 w-3" />
+                </button>
+                <span class="w-5 text-center text-xs font-bold tabular-nums">{{ l.qty }}</span>
+                <button @click="add(menuItems.find(m => m.id === l.id)!)" class="h-6 w-6 grid place-items-center rounded-lg bg-background hover:bg-muted border border-border transition">
+                  <Plus class="h-3 w-3" />
+                </button>
+                <button @click="remove(l.id)" class="h-6 w-6 grid place-items-center rounded-lg text-destructive hover:bg-destructive/10 ml-0.5 transition">
+                  <Trash2 class="h-3 w-3" />
+                </button>
               </div>
             </div>
           </div>
+        </div>
 
-          <!-- Kitchen notes + totals + Place button -->
-          <div class="p-4 border-t border-border space-y-2 shrink-0 bg-muted/10">
-            <div>
-              <Input
-                v-model="orderNotes"
-                placeholder="Kitchen note (e.g. spicy, no onion)…"
-                class="h-8 text-xs bg-background"
-              />
-            </div>
-            <div class="flex justify-between text-xs text-muted-foreground"><span>Subtotal</span><span class="tabular-nums">₹{{ subtotal.toFixed(0) }}</span></div>
-            <div class="flex justify-between text-xs text-muted-foreground"><span>Tax (8% GST)</span><span class="tabular-nums">₹{{ tax.toFixed(0) }}</span></div>
-            <div class="flex justify-between font-display text-lg font-bold pt-1 border-t border-border"><span>Total</span><span class="tabular-nums text-primary">₹{{ total.toFixed(0) }}</span></div>
-            <Button
-              @click="place"
-              :disabled="cart.length === 0 || placingOrder"
-              class="w-full h-11 gradient-primary text-primary-foreground font-bold shadow-glow text-sm rounded-xl"
-            >
-              <Send class="h-4 w-4 mr-1.5" />
-              {{ placingOrder ? 'Placing Order...' : 'Send to Kitchen' }}
-            </Button>
+        <!-- Kitchen notes + totals + Place button (Always pinned at bottom of ticket) -->
+        <div class="p-3 sm:p-3.5 border-t border-border space-y-1.5 shrink-0 bg-muted/10">
+          <div>
+            <Input
+              v-model="orderNotes"
+              placeholder="Kitchen note (e.g. spicy, no onion)…"
+              class="h-8 text-xs bg-background"
+            />
           </div>
-        </aside>
-      </div>
+          <div class="flex justify-between text-xs text-muted-foreground"><span>Subtotal</span><span class="tabular-nums">₹{{ subtotal.toFixed(0) }}</span></div>
+          <div class="flex justify-between text-xs text-muted-foreground"><span>Tax (8% GST)</span><span class="tabular-nums">₹{{ tax.toFixed(0) }}</span></div>
+          <div class="flex justify-between font-display text-base sm:text-lg font-bold pt-1 border-t border-border"><span>Total</span><span class="tabular-nums text-primary">₹{{ total.toFixed(0) }}</span></div>
+          <Button
+            @click="place"
+            :disabled="cart.length === 0 || placingOrder"
+            class="w-full h-10 gradient-primary text-primary-foreground font-bold shadow-glow text-xs sm:text-sm rounded-xl cursor-pointer"
+          >
+            <Send class="h-3.5 w-3.5 mr-1.5" />
+            {{ placingOrder ? 'Placing Order...' : 'Send to Kitchen' }}
+          </Button>
+        </div>
+      </aside>
+    </div>
+  </div>
 
       <!-- ══════════════════════════════════════════ -->
       <!--  Mobile Persistent Floating Bottom Bar     -->

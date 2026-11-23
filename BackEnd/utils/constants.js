@@ -43,12 +43,18 @@ const PERMISSIONS = {
     'manage_menu',
     'view_orders',
     'manage_payments',
+    'manage_hotel_facilities',
+    'view_all_hotels',
   ],
   RESTAURANT_ADMIN: [
     'manage_own_menu',
     'manage_own_staff',
     'view_own_orders',
     'view_own_reports',
+    'manage_hotel_rooms',
+    'manage_hotel_bookings',
+    'view_hotel_reports',
+    'manage_hotel_housekeeping',
   ],
   WAITER: [
     'create_orders',
@@ -65,6 +71,11 @@ const PERMISSIONS = {
     'generate_bill',
     'process_payment',
     'view_transactions',
+    'view_hotel_rooms',
+    'create_hotel_bookings',
+    'checkin_hotel_guest',
+    'checkout_hotel_guest',
+    'process_hotel_payments',
   ],
 };
 
@@ -105,6 +116,29 @@ const RESTAURANT_STATUS = {
   CLOSED: 'CLOSED',
 };
 
+const HOTEL_ROOM_STATUS = {
+  AVAILABLE: 'AVAILABLE',
+  RESERVED: 'RESERVED',
+  OCCUPIED: 'OCCUPIED',
+  CLEANING: 'CLEANING',
+  MAINTENANCE: 'MAINTENANCE',
+};
+
+const HOTEL_BOOKING_STATUS = {
+  RESERVED: 'RESERVED',
+  CHECKED_IN: 'CHECKED_IN',
+  CHECKED_OUT: 'CHECKED_OUT',
+  CANCELLED: 'CANCELLED',
+  NO_SHOW: 'NO_SHOW',
+};
+
+const HOTEL_PAYMENT_TYPES = {
+  ADVANCE: 'ADVANCE',
+  INTERIM: 'INTERIM',
+  SETTLEMENT: 'SETTLEMENT',
+  REFUND: 'REFUND',
+};
+
 module.exports = {
   ROLES,
   PERMISSIONS,
@@ -113,6 +147,9 @@ module.exports = {
   PAYMENT_METHODS,
   MENU_CATEGORIES,
   RESTAURANT_STATUS,
+  HOTEL_ROOM_STATUS,
+  HOTEL_BOOKING_STATUS,
+  HOTEL_PAYMENT_TYPES,
   normalizeRole,
   formatRoleForClient,
 };

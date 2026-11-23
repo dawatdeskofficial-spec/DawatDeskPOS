@@ -35,6 +35,12 @@ const restaurantSchema = new mongoose.Schema(
       enum: ['ACTIVE', 'INACTIVE', 'CLOSED'],
       default: 'ACTIVE',
     },
+    facilities: {
+      hotelRoomManagement: {
+        type: Boolean,
+        default: false,
+      },
+    },
     maxTables: {
       type: Number,
       default: 20,

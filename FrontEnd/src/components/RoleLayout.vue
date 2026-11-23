@@ -33,7 +33,7 @@ import BottomNavigation from '@/components/mobile/BottomNavigation.vue'
 import SideDrawer from '@/components/mobile/SideDrawer.vue'
 import DawatDeskLogo from '@/components/DawatDeskLogo.vue'
 
-import { restaurantNav, adminNav } from '@/lib/nav'
+import { restaurantNav, adminNav, cashierNav, hotelAdminNavItem, hotelCashierNavItem } from '@/lib/nav'
 
 interface NavItem {
   to: string
@@ -81,17 +81,46 @@ let notifInterval: any
 
 const isInspecting = computed(() => auth.user?.role === 'main_admin' && Boolean(auth.inspectedRestaurantId))
 
+const isHotelModuleEnabled = computed(() => {
+  if (isInspecting.value) return true
+  if (auth.restaurantFacilities?.hotelRoomManagement !== undefined) {
+    return Boolean(auth.restaurantFacilities.hotelRoomManagement)
+  }
+  const rObj = typeof auth.user?.restaurantId === 'object' ? (auth.user.restaurantId as any) : null
+  return Boolean(rObj?.facilities?.hotelRoomManagement)
+})
+
 const effectiveNav = computed(() => {
+  let baseNav: NavItem[] = []
   if (isInspecting.value) {
-    return restaurantNav
+    baseNav = [...restaurantNav]
+    if (isHotelModuleEnabled.value && !baseNav.some(n => n.to === '/restaurant/hotel')) {
+      baseNav.push(hotelAdminNavItem)
+    }
+    return baseNav
   }
-  if (props.nav && props.nav.length > 0) {
-    return props.nav
-  }
+
   const r = auth.user?.role || props.role
-  if (r === 'main_admin') return adminNav
-  if (r === 'restaurant_admin') return restaurantNav
-  return props.nav || []
+  if (props.nav && props.nav.length > 0) {
+    baseNav = [...props.nav]
+  } else if (r === 'main_admin') {
+    return adminNav
+  } else if (r === 'restaurant_admin') {
+    baseNav = [...restaurantNav]
+  } else if (r === 'cashier') {
+    baseNav = [...cashierNav]
+  } else {
+    return props.nav || []
+  }
+
+  if (r === 'restaurant_admin' && isHotelModuleEnabled.value && !baseNav.some(n => n.to === '/restaurant/hotel')) {
+    baseNav.push(hotelAdminNavItem)
+  }
+  if (r === 'cashier' && isHotelModuleEnabled.value && !baseNav.some(n => n.to === '/cashier/hotel')) {
+    baseNav.push(hotelCashierNavItem)
+  }
+
+  return baseNav
 })
 
 const effectiveRoleLabel = computed(() => {
@@ -215,6 +244,9 @@ async function resolveRestaurantBrand() {
 }
 
 onMounted(() => {
+  // Sync live restaurant facilities (hotel module status)
+  auth.fetchRestaurantFacilities()
+
   const stored = localStorage.getItem('theme')
   if (stored) {
     dark.value = stored === 'dark'

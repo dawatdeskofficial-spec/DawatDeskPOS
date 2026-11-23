@@ -5,6 +5,8 @@ const WaitingQueue = require('../models/WaitingQueue');
 const SystemSettings = require('../models/SystemSettings');
 const Restaurant = require('../models/Restaurant');
 const User = require('../models/User');
+const WhatsAppDelivery = require('../models/WhatsAppDelivery');
+const whatsappDeliveryService = require('./whatsappDeliveryService');
 const logger = require('../utils/logger');
 const { ORDER_STATUS } = require('../utils/constants');
 
@@ -90,6 +92,8 @@ class PaymentService {
       await Order.findByIdAndUpdate(paymentData.orderId, {
         status: ORDER_STATUS.COMPLETED,
         paymentStatus: 'COMPLETED',
+        customerPhone: paymentData.customerPhone || order.customerPhone,
+        customerName: paymentData.customerName || order.customerName,
         subtotal,
         gst: gstAmount,
         discount,
@@ -111,7 +115,31 @@ class PaymentService {
       }
 
       logger.info(`Payment created: ${payment._id} (${receiptNumber}) for Order: ${order._id}`);
-      return payment;
+
+      // Optional WhatsApp Delivery Trigger (Async & Non-blocking to Payment)
+      let whatsappResult = null;
+      const targetPhone = paymentData.customerPhone || order.customerPhone;
+      if (paymentData.sendWhatsAppBill !== false && targetPhone) {
+        try {
+          whatsappResult = await whatsappDeliveryService.triggerBillDelivery({
+            paymentId: payment._id,
+            customerPhone: targetPhone,
+            customerName: paymentData.customerName || order.customerName,
+            forceRetry: false,
+            clientBaseUrl: paymentData.clientBaseUrl,
+          });
+        } catch (waErr) {
+          logger.error(`Automatic WhatsApp delivery trigger error: ${waErr.message}`);
+        }
+      }
+
+      const responsePayment = payment.toObject ? payment.toObject() : { ...payment };
+      if (whatsappResult) {
+        responsePayment.whatsappDelivery = whatsappResult.delivery;
+        responsePayment.waMeFallback = whatsappResult.waMeFallback;
+      }
+
+      return responsePayment;
     } catch (error) {
       logger.error(`Create payment error: ${error.message}`);
       throw error;
@@ -177,6 +205,21 @@ class PaymentService {
         }
       }
 
+      // Attach WhatsApp delivery records to payments
+      const paymentIds = payments.map(p => p._id || p.id).filter(Boolean);
+      if (paymentIds.length > 0) {
+        const deliveries = await WhatsAppDelivery.find({ paymentId: { $in: paymentIds } }).lean();
+        const deliveryMap = deliveries.reduce((map, d) => {
+          map[d.paymentId.toString()] = d;
+          return map;
+        }, {});
+
+        for (let i = 0; i < payments.length; i++) {
+          const pId = (payments[i]._id || payments[i].id).toString();
+          payments[i].whatsappDelivery = deliveryMap[pId] || null;
+        }
+      }
+
       return { payments, total, page, limit };
     } catch (error) {
       logger.error(`Get payments error: ${error.message}`);
@@ -198,17 +241,20 @@ class PaymentService {
         throw new Error('Payment not found');
       }
 
+      const plainPayment = payment.toObject ? payment.toObject() : { ...payment };
+
       if (payment.orderId) {
         const orderService = require('./orderService');
         const ordersWithItems = await orderService.attachItemsToOrders([payment.orderId]);
         if (ordersWithItems.length > 0) {
-          const plainPayment = payment.toObject ? payment.toObject() : payment;
           plainPayment.orderId = ordersWithItems[0];
-          return plainPayment;
         }
       }
 
-      return payment;
+      const delivery = await WhatsAppDelivery.findOne({ paymentId }).lean();
+      plainPayment.whatsappDelivery = delivery || null;
+
+      return plainPayment;
     } catch (error) {
       logger.error(`Get payment error: ${error.message}`);
       throw error;

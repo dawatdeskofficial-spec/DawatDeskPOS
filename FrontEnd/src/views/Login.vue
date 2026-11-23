@@ -1,9 +1,9 @@
 <script setup lang="ts">
-import { ref, watch, onMounted } from 'vue'
+import { ref, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
-import { ChefHat, ClipboardList, Crown, Receipt, Store, Utensils, Monitor, ConciergeBell, Mail, KeyRound, RefreshCw, CheckCircle2 } from 'lucide-vue-next'
-import { useAuthStore, ROLE_HOMES, ROLE_LABELS, type AppRole } from '@/stores/auth'
-import { sendOtp } from '@/lib/api'
+import { Mail, Lock, ArrowRight, ArrowLeft, RefreshCw, CheckCircle2, ShieldCheck } from 'lucide-vue-next'
+import { useAuthStore, ROLE_HOMES, type AppRole } from '@/stores/auth'
+import { loginUser, sendOtp } from '@/lib/api'
 import Button from '@/components/ui/Button.vue'
 import Input from '@/components/ui/Input.vue'
 import DawatDeskLogo from '@/components/DawatDeskLogo.vue'
@@ -11,36 +11,42 @@ import DawatDeskLogo from '@/components/DawatDeskLogo.vue'
 const router = useRouter()
 const auth = useAuthStore()
 
-const authMode = ref<'password' | 'otp'>('password')
+// Step state: 'credentials' -> 'otp'
+const currentStep = ref<'credentials' | 'otp'>('credentials')
+const slideDirection = ref<'forward' | 'backward'>('forward')
+
+// Form inputs
+const email = ref('')
+const password = ref('')
 const otpCode = ref('')
-const otpSent = ref(false)
-const otpSending = ref(false)
-const otpCountdown = ref(0)
-const otpSuccessMessage = ref('')
-const testOtpHint = ref('')
 
-const roleOptions = [
-  { role: "main_admin" as AppRole, icon: Crown, desc: "System-wide control and analytics" },
-  { role: "restaurant_admin" as AppRole, icon: Store, desc: "Restaurant management and settings" },
-  { role: "waiter" as AppRole, icon: ClipboardList, desc: "Table orders and serving status" },
-  { role: "chef" as AppRole, icon: ChefHat, desc: "Kitchen display ticket queue" },
-  { role: "cashier" as AppRole, icon: Receipt, desc: "Billing and POS settlements" },
-]
-
-const demoCredentials = {
-  main_admin: { email: 'admin@gmail.com', password: 'admin123' },
-  restaurant_admin: { email: 'manager.hariom@gmail.com', password: 'admin123' },
-  waiter: { email: 'john.waiter@gmail.com', password: 'waiter123' },
-  chef: { email: 'chef.michael@gmail.com', password: 'chef123' },
-  cashier: { email: 'hari.cashier@gmail.com', password: 'cashier123' },
-}
-
-const selected = ref<AppRole>('main_admin')
-const email = ref(demoCredentials.main_admin.email)
-const password = ref(demoCredentials.main_admin.password)
+// Statuses
 const forgot = ref(false)
 const error = ref('')
 const isLoading = ref(false)
+const otpSending = ref(false)
+const otpMessage = ref('')
+
+// 30-Second Resend Countdown Timer
+const resendCountdown = ref(0)
+let timerInterval: any = null
+
+function startCountdown(seconds: number = 30) {
+  if (timerInterval) clearInterval(timerInterval)
+  resendCountdown.value = seconds
+  timerInterval = setInterval(() => {
+    if (resendCountdown.value > 0) {
+      resendCountdown.value--
+    } else {
+      clearInterval(timerInterval)
+      timerInterval = null
+    }
+  }, 1000)
+}
+
+onUnmounted(() => {
+  if (timerInterval) clearInterval(timerInterval)
+})
 
 const roleChunkLoaders: Record<AppRole, () => Promise<any>> = {
   main_admin: () => import('@/views/admin/Dashboard.vue'),
@@ -63,139 +69,157 @@ onMounted(() => {
     router.push(ROLE_HOMES[auth.user.role] || '/')
     return
   }
-  // Preload default selected role chunk and shared layout immediately
-  preloadRoleChunk(selected.value)
+  // Preload shared layout immediately
   import('@/components/RoleLayout.vue').catch(() => {})
-
-  // Idle preloading for other role chunks
-  const idleCallback = (window as any).requestIdleCallback || ((cb: () => void) => setTimeout(cb, 600))
-  idleCallback(() => {
-    roleOptions.forEach(opt => {
-      if (opt.role !== selected.value) {
-        preloadRoleChunk(opt.role)
-      }
-    })
-  })
 })
 
-watch(selected, (newRole) => {
-  const creds = demoCredentials[newRole]
-  email.value = creds.email
-  password.value = creds.password
-  preloadRoleChunk(newRole)
-})
+function getCleanEmail(): string {
+  let clean = email.value.trim()
+  if (clean && !clean.includes('@')) {
+    clean = `${clean}@gmail.com`
+  }
+  return clean
+}
 
-async function submit() {
+function isTestingEmail(emailStr: string): boolean {
+  const clean = emailStr.toLowerCase().trim()
+  const testList = [
+    'dawatdesk.official@gmail.com',
+    'admin@gmail.com',
+    'manager@gmail.com',
+    'waiter@gmail.com',
+    'chef@gmail.com',
+    'cashier@gmail.com',
+    'test@gmail.com',
+  ]
+  return (
+    testList.includes(clean) ||
+    clean.startsWith('test') ||
+    clean.includes('test@') ||
+    clean.startsWith('admin@') ||
+    clean.startsWith('manager@') ||
+    clean.startsWith('waiter@') ||
+    clean.startsWith('chef@') ||
+    clean.startsWith('cashier@')
+  )
+}
+
+// Step 1: Submit email & password, validate credentials, send OTP, and animate to OTP section
+async function handleSubmitCredentials() {
   if (isLoading.value) return
   error.value = ''
+  otpMessage.value = ''
+
+  const cleanEmail = getCleanEmail()
+  if (!cleanEmail) {
+    error.value = 'Please enter your email address.'
+    return
+  }
+  if (!password.value) {
+    error.value = 'Please enter your password.'
+    return
+  }
+
+  const isTest = isTestingEmail(cleanEmail)
   isLoading.value = true
-  preloadRoleChunk(selected.value)
-  
+
   try {
-    let loginEmail = email.value.trim()
-    if (!loginEmail.includes('@')) {
-      loginEmail = `${loginEmail}@gmail.com`
+    // 1. Validate credentials with backend
+    await loginUser(cleanEmail, password.value)
+
+    // 2. Dispatch OTP / request access
+    const res = (await sendOtp(cleanEmail, 'login')) as any
+
+    if (isTest) {
+      // Direct access for testing emails with 123456
+      otpCode.value = '123456'
+      otpMessage.value = 'Testing account: direct OTP 123456 prefilled.'
+    } else {
+      // Real emails require manual entry from inbox
+      otpCode.value = ''
+      otpMessage.value = res?.message || `A 6-digit verification code has been sent to ${cleanEmail}.`
     }
-    await auth.signIn(loginEmail, password.value)
-    if (auth.user) {
-      router.push(ROLE_HOMES[auth.user.role] || '/')
-    }
+
+    // 3. Start 30-second countdown for resend
+    startCountdown(30)
+
+    // 4. Smooth slide transition into OTP section
+    slideDirection.value = 'forward'
+    currentStep.value = 'otp'
   } catch (err: any) {
-    error.value = err.message || "Failed to sign in"
+    error.value = err.message || 'Invalid email or password.'
   } finally {
     isLoading.value = false
   }
 }
 
-async function handleSendOtp() {
-  if (otpSending.value || otpCountdown.value > 0) return
+// Resend OTP button handler (active after 30 seconds)
+async function handleResendOtp() {
+  if (resendCountdown.value > 0 || otpSending.value) return
   error.value = ''
-  otpSuccessMessage.value = ''
-  testOtpHint.value = ''
-  
-  let loginEmail = email.value.trim()
-  if (!loginEmail) {
-    error.value = 'Please enter your email address to receive an OTP.'
-    return
-  }
-  if (!loginEmail.includes('@')) {
-    loginEmail = `${loginEmail}@gmail.com`
-  }
-
   otpSending.value = true
+
+  const cleanEmail = getCleanEmail()
+  const isTest = isTestingEmail(cleanEmail)
+
   try {
-    const res = await sendOtp(loginEmail, 'login') as any
-    otpSent.value = true
-    otpSuccessMessage.value = res.message || `OTP sent to ${loginEmail}`
-    if (res.data?.testOtp) {
-      testOtpHint.value = `Dev test code: ${res.data.testOtp}`
-    } else if (res.data?.warning) {
-      testOtpHint.value = res.data.warning
+    const res = (await sendOtp(cleanEmail, 'login')) as any
+    if (isTest) {
+      otpCode.value = '123456'
+      otpMessage.value = 'Testing account: direct OTP 123456 ready.'
+    } else {
+      otpCode.value = ''
+      otpMessage.value = res?.message || `A fresh verification code has been sent to ${cleanEmail}.`
     }
-    otpCountdown.value = 60
-    const timer = setInterval(() => {
-      otpCountdown.value--
-      if (otpCountdown.value <= 0) {
-        clearInterval(timer)
-      }
-    }, 1000)
+    startCountdown(30)
   } catch (err: any) {
-    error.value = err.message || 'Failed to send OTP. Please check your email.'
+    error.value = err.message || 'Failed to resend code. Please try again.'
   } finally {
     otpSending.value = false
   }
 }
 
-async function handleOtpLogin() {
+// Step 2: OTP verification
+async function handleVerifyOtp() {
   if (isLoading.value) return
   error.value = ''
-  if (!otpCode.value.trim()) {
-    error.value = 'Please enter the 6-digit OTP code sent to your email.'
+
+  const cleanOtp = otpCode.value.replace(/\s+/g, '')
+  if (!cleanOtp || cleanOtp.length < 6) {
+    error.value = 'Please enter the complete 6-digit code.'
     return
   }
 
   isLoading.value = true
-  preloadRoleChunk(selected.value)
+  const cleanEmail = getCleanEmail()
+
   try {
-    let loginEmail = email.value.trim()
-    if (!loginEmail.includes('@')) {
-      loginEmail = `${loginEmail}@gmail.com`
-    }
-    await auth.signInWithOtp(loginEmail, otpCode.value.trim())
+    await auth.signInWithOtp(cleanEmail, cleanOtp)
     if (auth.user) {
       router.push(ROLE_HOMES[auth.user.role] || '/')
     }
   } catch (err: any) {
-    error.value = err.message || 'Invalid or expired OTP. Please try again.'
+    error.value = err.message || 'Invalid or expired OTP code. Please check your email and try again.'
   } finally {
     isLoading.value = false
   }
 }
 
-async function launchKioskDemo() {
-  if (isLoading.value) return
+// Back to credentials step
+function goBackToCredentials() {
   error.value = ''
-  isLoading.value = true
-  import('@/views/customer-ordering/index.vue').catch(() => {})
-  
-  try {
-    const creds = demoCredentials.waiter
-    await auth.signIn(creds.email, creds.password)
-    if (auth.user) {
-      router.push('/customer-ordering')
-    }
-  } catch (err: any) {
-    error.value = err.message || "Failed to launch kiosk mode"
-  } finally {
-    isLoading.value = false
-  }
+  otpCode.value = ''
+  slideDirection.value = 'backward'
+  currentStep.value = 'credentials'
 }
 </script>
 
 <template>
-  <div class="min-h-screen grid lg:grid-cols-2 bg-background">
-    <!-- Visual side -->
-    <div class="hidden lg:flex relative overflow-hidden bg-gradient-to-br from-[#090d16] via-[#0f172a] to-[#151b2d] p-12 flex-col justify-between border-r border-white/10">
+  <div class="w-full min-h-screen lg:h-screen lg:overflow-hidden grid lg:grid-cols-2 bg-background">
+    <!-- Visual Branding Side (Full Height, 50% Width on Large Screens) -->
+    <div
+      class="hidden lg:flex relative overflow-hidden bg-gradient-to-br from-[#090d16] via-[#0f172a] to-[#151b2d] p-8 xl:p-12 flex-col justify-between border-r border-white/10 h-full"
+    >
       <div class="absolute inset-0 paper-tex opacity-60 pointer-events-none" />
       <div
         class="absolute inset-0 pointer-events-none"
@@ -204,20 +228,20 @@ async function launchKioskDemo() {
       <div class="relative flex items-center">
         <DawatDeskLogo variant="dark" size="lg" />
       </div>
-      <div class="relative space-y-7 text-white">
+      <div class="relative space-y-6 text-white max-w-lg">
         <div class="inline-flex items-center gap-2 px-3 py-1.5 rounded-full border border-white/15 bg-white/5 text-xs text-white/80 backdrop-blur">
           <span class="h-1.5 w-1.5 rounded-full bg-primary-glow animate-pulse" />
           Loved by 1,200+ kitchens around the world
         </div>
-        <h1 class="font-display text-5xl xl:text-6xl font-bold leading-[1.05] tracking-tight">
+        <h1 class="font-display text-4xl xl:text-5xl 2xl:text-6xl font-bold leading-[1.08] tracking-tight">
           Run a warmer,<br />
           <span class="italic gradient-text">tastier</span> restaurant.
         </h1>
-        <p class="text-white/70 text-base max-w-md leading-relaxed">
+        <p class="text-white/70 text-sm xl:text-base leading-relaxed">
           From the first hello at the door to the last bite on the plate — DawatDesk keeps your front of house,
           kitchen, and bar moving together, beautifully.
         </p>
-        <div class="grid grid-cols-3 gap-3 pt-2 max-w-md">
+        <div class="grid grid-cols-3 gap-3 pt-2">
           <div
             v-for="s in [
               { v: '1.2K+', l: 'Restaurants' },
@@ -225,10 +249,10 @@ async function launchKioskDemo() {
               { v: '4.9★', l: 'Staff rating' },
             ]"
             :key="s.l"
-            class="rounded-2xl border border-white/10 bg-white/5 p-4 backdrop-blur-sm"
+            class="rounded-2xl border border-white/10 bg-white/5 p-3.5 xl:p-4 backdrop-blur-sm"
           >
-            <div class="font-display text-2xl font-bold">{{ s.v }}</div>
-            <div class="text-[10.5px] text-white/60 uppercase tracking-wider mt-0.5">{{ s.l }}</div>
+            <div class="font-display text-xl xl:text-2xl font-bold">{{ s.v }}</div>
+            <div class="text-[10px] xl:text-[10.5px] text-white/60 uppercase tracking-wider mt-0.5">{{ s.l }}</div>
           </div>
         </div>
       </div>
@@ -237,184 +261,223 @@ async function launchKioskDemo() {
       </div>
     </div>
 
-    <!-- Form side -->
-    <div class="flex items-center justify-center p-6 lg:p-12">
-      <div class="w-full max-w-md space-y-8 animate-fade-in">
-        <div class="flex items-center justify-center lg:justify-start mb-2">
-          <DawatDeskLogo variant="auto" size="lg" />
+    <!-- Form Side (Full Height, Centered Content) -->
+    <div class="flex items-center justify-center p-6 sm:p-8 lg:p-12 xl:p-16 h-full overflow-y-auto">
+      <div class="w-full max-w-[420px] sm:max-w-[440px] space-y-6 my-auto">
+        <!-- Logo -->
+        <div class="flex items-center justify-center lg:justify-start">
+          <DawatDeskLogo variant="auto" size="md" />
         </div>
 
-        <div v-if="forgot" class="space-y-6">
+        <!-- Forgot Password View -->
+        <div v-if="forgot" class="space-y-4 animate-fade-in">
           <div>
-            <h2 class="font-display text-3xl font-bold">Reset password</h2>
-            <p class="text-muted-foreground mt-1">We'll send a recovery link to your email.</p>
+            <h2 class="font-display text-2xl lg:text-3xl font-bold leading-tight">Reset password</h2>
+            <p class="text-muted-foreground text-xs sm:text-sm mt-0.5">We'll send a recovery link to your email.</p>
           </div>
-          <div class="space-y-2">
-            <label class="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70">Email</label>
-            <Input type="email" placeholder="you@gmail.com" />
+          <div class="space-y-1.5">
+            <label class="text-xs sm:text-sm font-medium">Email address</label>
+            <Input type="email" placeholder="name@company.com" class="h-10 text-sm" />
           </div>
-          <Button class="w-full h-11" @click="forgot = false">Send recovery link</Button>
-          <button @click="forgot = false" class="text-sm text-muted-foreground hover:text-foreground">
-            ← Back to sign in
+          <Button class="w-full h-10 sm:h-11 text-sm cursor-pointer" @click="forgot = false">Send recovery link</Button>
+          <button @click="forgot = false" class="text-xs sm:text-sm text-muted-foreground hover:text-foreground cursor-pointer flex items-center gap-1.5">
+            <ArrowLeft class="h-3.5 w-3.5" /> Back to sign in
           </button>
         </div>
-        
-        <div v-else>
-          <div>
-            <h2 class="font-display text-3xl font-bold">Welcome back</h2>
-            <p class="text-muted-foreground mt-1">Sign in to your role-based dashboard.</p>
-          </div>
 
-          <div class="mt-8 mb-6">
-            <label class="mb-3 block text-sm font-medium leading-none">Sign in as</label>
-            <div class="grid grid-cols-1 gap-2">
-              <button
-                v-for="opt in roleOptions"
-                :key="opt.role"
-                type="button"
-                @click="selected = opt.role"
-                @mouseenter="preloadRoleChunk(opt.role)"
-                :class="['flex items-center gap-3 p-3 rounded-xl border text-left transition-all', selected === opt.role ? 'border-primary bg-primary/10 shadow-soft' : 'border-border hover:border-primary/40 hover:bg-muted/40']"
-              >
-                <div
-                  :class="['h-9 w-9 rounded-lg grid place-items-center transition', selected === opt.role ? 'gradient-primary text-primary-foreground' : 'bg-muted text-foreground']"
-                >
-                  <component :is="opt.icon" class="h-4.5 w-4.5" />
-                </div>
-                <div class="flex-1 min-w-0">
-                  <div class="text-sm font-semibold">{{ ROLE_LABELS[opt.role] }}</div>
-                  <div class="text-xs text-muted-foreground truncate">{{ opt.desc }}</div>
-                </div>
-              </button>
-            </div>
-          </div>
-
-          <!-- Auth Method Tabs: Password vs Real-Time Email OTP -->
-          <div class="grid grid-cols-2 p-1 rounded-xl bg-muted/70 border border-border/50 mb-5">
-            <button
-              type="button"
-              @click="authMode = 'password'; error = ''"
-              :class="[
-                'flex items-center justify-center gap-2 py-2 text-xs font-semibold rounded-lg transition-all',
-                authMode === 'password'
-                  ? 'bg-background shadow-xs text-foreground'
-                  : 'text-muted-foreground hover:text-foreground'
-              ]"
-            >
-              <KeyRound class="h-3.5 w-3.5" />
-              Password Login
-            </button>
-            <button
-              type="button"
-              @click="authMode = 'otp'; error = ''"
-              :class="[
-                'flex items-center justify-center gap-2 py-2 text-xs font-semibold rounded-lg transition-all',
-                authMode === 'otp'
-                  ? 'bg-background shadow-xs text-foreground'
-                  : 'text-muted-foreground hover:text-foreground'
-              ]"
-            >
-              <Mail class="h-3.5 w-3.5" />
-              Email OTP Login
-            </button>
-          </div>
-
-          <!-- Password Sign-in Form -->
-          <form v-if="authMode === 'password'" @submit.prevent="submit" class="space-y-4">
-            <div class="space-y-2">
-              <label class="text-sm font-medium">Email</label>
-              <Input type="email" v-model="email" required />
-            </div>
-            <div class="space-y-2">
-              <div class="flex items-center justify-between">
-                <label class="text-sm font-medium">Password</label>
-                <button type="button" @click="forgot = true" class="text-xs text-primary hover:underline">
-                  Forgot?
-                </button>
-              </div>
-              <Input type="password" v-model="password" required />
-            </div>
-            <div v-if="error" class="text-sm text-destructive font-medium">{{ error }}</div>
-            <Button type="submit" :disabled="isLoading" class="w-full h-11 gradient-primary text-primary-foreground font-semibold shadow-glow hover:opacity-90">
-              {{ isLoading ? 'Signing in...' : `Sign in to ${ROLE_LABELS[selected]}` }}
-            </Button>
-            <p class="mt-4 text-xs text-center text-muted-foreground">
-              Demo credentials for {{ ROLE_LABELS[selected] }} are preloaded for quick testing.
-            </p>
-          </form>
-
-          <!-- Email OTP Sign-in Form -->
-          <form v-else @submit.prevent="handleOtpLogin" class="space-y-4">
-            <div class="space-y-2">
-              <div class="flex items-center justify-between">
-                <label class="text-sm font-medium">Registered Email</label>
-                <span class="text-[11px] text-muted-foreground flex items-center gap-1">
-                  From: <strong class="text-foreground">dawatdesk.official@gmail.com</strong>
-                </span>
-              </div>
-              <div class="flex gap-2">
-                <Input type="email" v-model="email" placeholder="user@gmail.com" required class="flex-1" />
-                <Button
-                  type="button"
-                  variant="outline"
-                  @click="handleSendOtp"
-                  :disabled="otpSending || otpCountdown > 0"
-                  class="shrink-0 text-xs font-semibold h-10 px-3"
-                >
-                  <RefreshCw v-if="otpSending" class="h-3.5 w-3.5 mr-1.5 animate-spin" />
-                  <Mail v-else class="h-3.5 w-3.5 mr-1.5 text-primary" />
-                  {{ otpSending ? 'Sending…' : otpCountdown > 0 ? `Resend (${otpCountdown}s)` : (otpSent ? 'Resend OTP' : 'Send OTP') }}
-                </Button>
-              </div>
-            </div>
-
-            <!-- OTP Sent Confirmation Banner -->
-            <div v-if="otpSuccessMessage" class="p-3 rounded-xl bg-primary/10 border border-primary/20 text-xs text-primary flex items-start gap-2">
-              <CheckCircle2 class="h-4 w-4 shrink-0 mt-0.5" />
+        <!-- Main Auth Workflow with Smooth Transition Animation -->
+        <div v-else class="relative overflow-hidden">
+          <Transition :name="slideDirection === 'forward' ? 'step-forward' : 'step-backward'" mode="out-in">
+            <!-- STEP 1: Email & Password Form -->
+            <div v-if="currentStep === 'credentials'" key="credentials-step" class="space-y-5">
               <div>
-                <div class="font-semibold">{{ otpSuccessMessage }}</div>
-                <div class="text-muted-foreground text-[11px] mt-0.5">Please check your inbox or spam folder for your 6-digit verification code.</div>
+                <h2 class="font-display text-2xl lg:text-3xl font-bold leading-tight">Welcome back</h2>
+                <p class="text-muted-foreground text-xs sm:text-sm mt-1">
+                  Please enter your email and password to access your account.
+                </p>
               </div>
+
+              <form @submit.prevent="handleSubmitCredentials" class="space-y-4">
+                <div class="space-y-1.5">
+                  <label class="text-xs sm:text-sm font-medium flex items-center gap-1.5">
+                    <Mail class="h-3.5 w-3.5 text-muted-foreground" />
+                    Email address
+                  </label>
+                  <Input
+                    type="email"
+                    v-model="email"
+                    placeholder="name@company.com"
+                    required
+                    class="h-10 text-sm"
+                    autocomplete="username"
+                  />
+                </div>
+
+                <div class="space-y-1.5">
+                  <div class="flex items-center justify-between">
+                    <label class="text-xs sm:text-sm font-medium flex items-center gap-1.5">
+                      <Lock class="h-3.5 w-3.5 text-muted-foreground" />
+                      Password
+                    </label>
+                    <button type="button" @click="forgot = true" class="text-xs text-primary hover:underline cursor-pointer">
+                      Forgot password?
+                    </button>
+                  </div>
+                  <Input
+                    type="password"
+                    v-model="password"
+                    placeholder="••••••••"
+                    required
+                    class="h-10 text-sm"
+                    autocomplete="current-password"
+                  />
+                </div>
+
+                <div v-if="error" class="p-2.5 rounded-lg bg-destructive/10 border border-destructive/20 text-xs sm:text-sm text-destructive font-medium animate-fade-in">
+                  {{ error }}
+                </div>
+
+                <Button
+                  type="submit"
+                  :disabled="isLoading"
+                  class="w-full h-10 sm:h-11 gradient-primary text-primary-foreground font-semibold shadow-glow hover:opacity-90 text-sm cursor-pointer flex items-center justify-center gap-2"
+                >
+                  <span v-if="isLoading" class="flex items-center gap-2">
+                    <RefreshCw class="h-4 w-4 animate-spin" />
+                    Checking credentials...
+                  </span>
+                  <span v-else class="flex items-center gap-2">
+                    Sign In
+                    <ArrowRight class="h-4 w-4" />
+                  </span>
+                </Button>
+              </form>
             </div>
 
-            <div v-if="testOtpHint" class="p-2.5 rounded-lg bg-amber-500/10 border border-amber-500/20 text-xs text-amber-600 dark:text-amber-400">
-              💡 {{ testOtpHint }}
-            </div>
-
-            <!-- OTP Input Field -->
-            <div class="space-y-2">
-              <div class="flex items-center justify-between">
-                <label class="text-sm font-medium">6-Digit OTP Code</label>
-                <span class="text-[11px] text-muted-foreground">Expires in 10 minutes</span>
+            <!-- STEP 2: Manual OTP Verification Form with 30s Resend Timer -->
+            <div v-else key="otp-step" class="space-y-5">
+              <div>
+                <div class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-primary/10 border border-primary/20 text-xs text-primary font-medium mb-2">
+                  <ShieldCheck class="h-3.5 w-3.5" />
+                  Email OTP Verification
+                </div>
+                <h2 class="font-display text-2xl lg:text-3xl font-bold leading-tight">Enter OTP Code</h2>
+                <p class="text-muted-foreground text-xs sm:text-sm mt-1">
+                  We've sent a 6-digit code to <strong class="text-foreground">{{ getCleanEmail() }}</strong>
+                </p>
               </div>
-              <Input
-                type="text"
-                v-model="otpCode"
-                placeholder="• • • • • •"
-                maxlength="6"
-                pattern="[0-9]*"
-                class="text-center font-mono text-xl tracking-[0.5em] font-bold h-12"
-                :disabled="!otpSent"
-                required
-              />
+
+              <!-- Real Notification Banner -->
+              <div v-if="otpMessage" class="p-3 rounded-lg bg-primary/10 border border-primary/20 text-xs text-primary flex items-start gap-2.5">
+                <CheckCircle2 class="h-4 w-4 shrink-0 mt-0.5 text-primary" />
+                <div class="space-y-0.5">
+                  <div class="font-semibold">{{ otpMessage }}</div>
+                  <div v-if="isTestingEmail(getCleanEmail())" class="text-[11px] text-primary/80 font-medium">
+                    Testing account: Direct access with code 123456 (no email verification needed).
+                  </div>
+                  <div v-else class="text-[11px] text-muted-foreground">
+                    Please check your inbox or spam folder for your 6-digit code.
+                  </div>
+                </div>
+              </div>
+
+              <form @submit.prevent="handleVerifyOtp" class="space-y-4">
+                <div class="space-y-2">
+                  <div class="flex items-center justify-between">
+                    <label class="text-xs sm:text-sm font-medium">6-Digit Verification Code</label>
+                    <span class="text-[11px] text-muted-foreground">Valid for 10 mins</span>
+                  </div>
+                  <Input
+                    type="text"
+                    v-model="otpCode"
+                    placeholder="• • • • • •"
+                    maxlength="6"
+                    pattern="[0-9]*"
+                    class="text-center font-mono text-2xl tracking-[0.4em] font-bold h-12"
+                    required
+                    autofocus
+                    autocomplete="one-time-code"
+                  />
+                </div>
+
+                <!-- 30-Second Resend Countdown Section -->
+                <div class="flex items-center justify-between text-xs py-1 px-0.5">
+                  <span class="text-muted-foreground">Didn't receive the email?</span>
+                  <div>
+                    <span v-if="resendCountdown > 0" class="text-muted-foreground font-medium">
+                      Resend in <span class="text-primary font-bold">{{ resendCountdown }}s</span>
+                    </span>
+                    <button
+                      v-else
+                      type="button"
+                      @click="handleResendOtp"
+                      :disabled="otpSending"
+                      class="text-primary font-semibold hover:underline cursor-pointer flex items-center gap-1"
+                    >
+                      <RefreshCw v-if="otpSending" class="h-3 w-3 animate-spin" />
+                      Resend OTP
+                    </button>
+                  </div>
+                </div>
+
+                <div v-if="error" class="p-2.5 rounded-lg bg-destructive/10 border border-destructive/20 text-xs sm:text-sm text-destructive font-medium animate-fade-in">
+                  {{ error }}
+                </div>
+
+                <Button
+                  type="submit"
+                  :disabled="isLoading || otpCode.trim().length !== 6"
+                  class="w-full h-10 sm:h-11 gradient-primary text-primary-foreground font-semibold shadow-glow hover:opacity-90 text-sm cursor-pointer flex items-center justify-center gap-2"
+                >
+                  <RefreshCw v-if="isLoading" class="h-4 w-4 animate-spin" />
+                  <span>{{ isLoading ? 'Verifying Code...' : 'Verify & Sign In' }}</span>
+                </Button>
+
+                <div class="pt-1">
+                  <button
+                    type="button"
+                    @click="goBackToCredentials"
+                    class="w-full text-center text-xs text-muted-foreground hover:text-foreground cursor-pointer flex items-center justify-center gap-1.5 transition py-1"
+                  >
+                    <ArrowLeft class="h-3.5 w-3.5" />
+                    Change email or password
+                  </button>
+                </div>
+              </form>
             </div>
-
-            <div v-if="error" class="text-sm text-destructive font-medium">{{ error }}</div>
-
-            <Button
-              type="submit"
-              :disabled="isLoading || !otpSent || !otpCode.trim()"
-              class="w-full h-11 gradient-primary text-primary-foreground font-semibold shadow-glow hover:opacity-90"
-            >
-              {{ isLoading ? 'Verifying & Signing in…' : `Verify OTP & Sign in` }}
-            </Button>
-
-            <p class="mt-4 text-xs text-center text-muted-foreground">
-              Real-time OTP verification sent directly from dawatdesk.official@gmail.com to any registered user.
-            </p>
-          </form>
+          </Transition>
         </div>
       </div>
     </div>
   </div>
 </template>
+
+<style scoped>
+/* Step Forward Animation (Slide to Left) */
+.step-forward-enter-active,
+.step-forward-leave-active {
+  transition: all 0.28s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.step-forward-enter-from {
+  opacity: 0;
+  transform: translateX(35px);
+}
+.step-forward-leave-to {
+  opacity: 0;
+  transform: translateX(-35px);
+}
+
+/* Step Backward Animation (Slide to Right) */
+.step-backward-enter-active,
+.step-backward-leave-active {
+  transition: all 0.28s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.step-backward-enter-from {
+  opacity: 0;
+  transform: translateX(-35px);
+}
+.step-backward-leave-to {
+  opacity: 0;
+  transform: translateX(35px);
+}
+</style>

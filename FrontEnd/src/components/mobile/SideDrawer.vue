@@ -4,7 +4,7 @@ import { useRouter, useRoute } from 'vue-router'
 import {
   X, LogOut, Sun, Moon, Globe, Shield, Building2, User as UserIcon,
   ChevronRight, Sparkles, UtensilsCrossed, Table2, ShoppingBag, ChefHat,
-  Receipt, Users, BarChart3, Settings, ShieldAlert, FileText, Check
+  Receipt, Users, BarChart3, Settings, ShieldAlert, FileText, Check, BedDouble
 } from 'lucide-vue-next'
 import { useAuthStore, ROLE_LABELS, type AppRole } from '@/stores/auth'
 import DawatDeskLogo from '@/components/DawatDeskLogo.vue'
@@ -41,6 +41,8 @@ interface DrawerLink {
 const operationsLinks = computed<DrawerLink[]>(() => {
   const links: DrawerLink[] = []
   const r = props.role
+  const restObj = typeof auth.user?.restaurantId === 'object' ? (auth.user.restaurantId as any) : null
+  const isHotelEnabled = props.isInspecting || Boolean(auth.restaurantFacilities?.hotelRoomManagement ?? restObj?.facilities?.hotelRoomManagement)
 
   if (r === 'waiter') {
     links.push({ to: '/waiter', label: 'Take Order & Floor', icon: Table2 })
@@ -48,8 +50,14 @@ const operationsLinks = computed<DrawerLink[]>(() => {
     links.push({ to: '/chef', label: 'Kitchen Display (KOT)', icon: ChefHat })
   } else if (r === 'cashier') {
     links.push({ to: '/cashier', label: 'Billing & POS Cashier', icon: Receipt })
+    if (isHotelEnabled) {
+      links.push({ to: '/cashier/hotel', label: 'Hotel Rooms & Booking', icon: BedDouble })
+    }
   } else if (r === 'restaurant_admin' || props.isInspecting) {
     links.push({ to: '/restaurant/dashboard', label: 'Operations Dashboard', icon: Sparkles })
+    if (isHotelEnabled) {
+      links.push({ to: '/restaurant/hotel', label: 'Hotel Room Management', icon: BedDouble })
+    }
     links.push({ to: '/restaurant/tables', label: 'Floor & Tables', icon: Table2 })
     links.push({ to: '/restaurant/orders', label: 'Live Orders', icon: ShoppingBag })
     links.push({ to: '/waiter', label: 'Waiter Order POS', icon: UtensilsCrossed })

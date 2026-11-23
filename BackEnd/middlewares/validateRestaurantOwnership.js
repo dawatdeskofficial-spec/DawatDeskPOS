@@ -5,6 +5,11 @@ const Payment = require('../models/Payment');
 const MenuItem = require('../models/MenuItem');
 const Category = require('../models/Category');
 const WaitingQueue = require('../models/WaitingQueue');
+const HotelRoomType = require('../models/HotelRoomType');
+const HotelRoom = require('../models/HotelRoom');
+const HotelBooking = require('../models/HotelBooking');
+const HotelPayment = require('../models/HotelPayment');
+const HotelInvoice = require('../models/HotelInvoice');
 const { sendError } = require('../utils/responseHandler');
 const { normalizeRole } = require('../utils/constants');
 const logger = require('../utils/logger');
@@ -36,7 +41,7 @@ const findResourceRestaurantId = async (req, resourceType) => {
   }
 
   if (resourceType === 'payment') {
-    const paymentId = req.params?.paymentId || req.params?.id;
+    const paymentId = req.params?.paymentId || req.params?.id || req.body?.paymentId;
     if (paymentId && mongoose.Types.ObjectId.isValid(paymentId)) {
       const payment = await Payment.findById(paymentId).select('restaurantId').lean();
       return getId(payment?.restaurantId);
@@ -79,6 +84,49 @@ const findResourceRestaurantId = async (req, resourceType) => {
       const targetUser = await User.findById(userId).select('restaurantId role').lean();
       if (normalizeRole(targetUser?.role) === 'MAIN_ADMIN') return null;
       return getId(targetUser?.restaurantId);
+    }
+  }
+
+  if (resourceType === 'hotelRoomType') {
+    const typeId = req.params?.typeId || req.params?.id || req.body?.roomTypeId;
+    if (typeId && mongoose.Types.ObjectId.isValid(typeId)) {
+      const type = await HotelRoomType.findById(typeId).select('restaurantId').lean();
+      return getId(type?.restaurantId);
+    }
+  }
+
+  if (resourceType === 'hotelRoom') {
+    const roomId = req.params?.roomId || req.params?.id || req.body?.roomId;
+    if (roomId && mongoose.Types.ObjectId.isValid(roomId)) {
+      const room = await HotelRoom.findById(roomId).select('restaurantId').lean();
+      return getId(room?.restaurantId);
+    }
+  }
+
+  if (resourceType === 'hotelBooking') {
+    const bookingId = req.params?.bookingId || req.params?.id || req.body?.bookingId;
+    if (bookingId && mongoose.Types.ObjectId.isValid(bookingId)) {
+      const booking = await HotelBooking.findById(bookingId).select('restaurantId').lean();
+      return getId(booking?.restaurantId);
+    }
+  }
+
+  if (resourceType === 'hotelPayment') {
+    const paymentId = req.params?.paymentId || req.params?.id || req.body?.paymentId;
+    if (paymentId && mongoose.Types.ObjectId.isValid(paymentId)) {
+      const payment = await HotelPayment.findById(paymentId).select('restaurantId').lean();
+      return getId(payment?.restaurantId);
+    }
+  }
+
+  if (resourceType === 'hotelInvoice') {
+    const invoiceId = req.params?.invoiceId || req.params?.id || req.body?.invoiceId;
+    if (invoiceId && mongoose.Types.ObjectId.isValid(invoiceId)) {
+      let invoice = await HotelInvoice.findById(invoiceId).select('restaurantId').lean();
+      if (!invoice) {
+        invoice = await HotelInvoice.findOne({ bookingId: invoiceId }).select('restaurantId').lean();
+      }
+      return getId(invoice?.restaurantId);
     }
   }
 

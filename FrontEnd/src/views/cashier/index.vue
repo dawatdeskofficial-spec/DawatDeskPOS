@@ -1,10 +1,12 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
+import { useRouter } from 'vue-router'
 import {
   Banknote, CreditCard, Download, Receipt, Smartphone, CheckCircle2,
   IndianRupee, ArrowLeftRight, Pencil, Trash2, Tag, X, Save,
   Plus, Minus, Search, ShoppingBag, Utensils, UtensilsCrossed, Users, Clock,
-  Phone, Bell, UserPlus, Package, CheckCircle, Check, ArrowLeft, ArrowRight, ChevronRight
+  Phone, Bell, UserPlus, Package, CheckCircle, Check, ArrowLeft, ArrowRight, ChevronRight,
+  MessageCircle, ExternalLink, RefreshCw, AlertCircle, CheckCheck, BedDouble
 } from 'lucide-vue-next'
 import { toast } from 'vue-sonner'
 import RoleLayout from '@/components/RoleLayout.vue'
@@ -15,7 +17,9 @@ import {
   getMenuItems, getCategoriesByRestaurant, createOrder,
   getWaitingQueue, addToWaitingQueue, updateWaitingQueueEntry,
   seatWaitingCustomer, deleteWaitingQueueEntry,
-  type MenuCategory, type WaitingQueueEntry
+  sendWhatsAppBill as sendWhatsAppBillApi, confirmManualWhatsAppSend,
+  getApiBaseUrl,
+  type MenuCategory, type WaitingQueueEntry, type WhatsAppDeliveryInfo
 } from '@/lib/api'
 import { consolidateOrderItems } from '@/lib/utils'
 import { useAuthStore } from '@/stores/auth'
@@ -49,6 +53,15 @@ interface ParcelCartItem {
 }
 
 const auth = useAuthStore()
+const router = useRouter()
+
+const isHotelModuleEnabled = computed(() => {
+  if (auth.restaurantFacilities?.hotelRoomManagement !== undefined) {
+    return Boolean(auth.restaurantFacilities.hotelRoomManagement)
+  }
+  const rObj = typeof auth.user?.restaurantId === 'object' ? (auth.user.restaurantId as any) : null
+  return Boolean(rObj?.facilities?.hotelRoomManagement)
+})
 
 // ── Navigation & View Tabs ──────────────────────────────────────────────────
 const activeTab = ref<'billing' | 'queue' | 'history'>('billing')
@@ -526,19 +539,213 @@ const filteredTransactions = computed(() => {
 const selectedOrder = computed(() => orders.value.find(o => (o.id || o._id) === selectedId.value))
 
 watch(filteredOrdersList, (list) => {
-  if (!selectedId.value && list.length > 0) {
+  if (!selectedId.value && list.length > 0 && !whatsAppDeliveryModalOpen.value) {
     selectedId.value = list[0].id || list[0]._id
   }
 }, { immediate: true })
 
 // Reset state when selected order changes
-watch(selectedId, () => {
+const sendWhatsAppBill = ref(true)
+const customerWhatsAppPhone = ref('')
+const customerWhatsAppName = ref('')
+const whatsAppDeliveryModalOpen = ref(false)
+const latestPaymentResult = ref<any>(null)
+const retryingWhatsApp = ref(false)
+const confirmingManual = ref(false)
+const lastLoadedOrderId = ref<string | null>(null)
+
+watch(selectedId, (newId) => {
   editMode.value          = false
   editableItems.value     = []
   discountInput.value     = ''
   cashGiven.value         = ''
   addItemDialogOpen.value = false
+
+  // Only initialize phone and name when switching to a different order!
+  // Do NOT wipe while the cashier is typing on the active order or when modal is open.
+  if (newId && newId !== lastLoadedOrderId.value) {
+    lastLoadedOrderId.value = newId
+    const ord = orders.value.find(o => (o.id || o._id) === newId)
+    customerWhatsAppPhone.value = ord?.customerPhone || ''
+    customerWhatsAppName.value = ord?.customerName || ''
+  }
+}, { immediate: true })
+
+function closeWhatsAppModal() {
+  whatsAppDeliveryModalOpen.value = false
+  if (!selectedId.value && filteredOrdersList.value.length > 0) {
+    const nextOrder = filteredOrdersList.value[0]
+    const nextId = nextOrder.id || nextOrder._id
+    selectedId.value = nextId
+    lastLoadedOrderId.value = nextId
+    customerWhatsAppPhone.value = nextOrder.customerPhone || ''
+    customerWhatsAppName.value = nextOrder.customerName || ''
+  } else if (!selectedId.value) {
+    customerWhatsAppPhone.value = ''
+    customerWhatsAppName.value = ''
+    lastLoadedOrderId.value = null
+  }
+}
+
+const customerPhoneValidation = computed(() => {
+  const p = (customerWhatsAppPhone.value || '').trim().replace(/[\s\-\(\)\.]/g, '')
+  if (!p) return { isValid: false, normalized: '', nationalNumber: '', error: 'Phone number required' }
+  const digits = p.replace(/\+/g, '')
+  if (!/^\d+$/.test(digits)) return { isValid: false, normalized: '', nationalNumber: digits, error: 'Contains invalid characters' }
+  if (/^(\d)\1{7,}$/.test(digits) || digits === '1234567890' || digits === '9876543210') {
+    return { isValid: false, normalized: '', nationalNumber: digits, error: 'Appears to be a dummy number' }
+  }
+  if (digits.length === 10 && /^[6-9]/.test(digits)) {
+    return { isValid: true, normalized: '91' + digits, nationalNumber: digits, error: '' }
+  }
+  if (digits.length === 11 && digits.startsWith('0') && /^[6-9]/.test(digits.slice(1))) {
+    return { isValid: true, normalized: '91' + digits.slice(1), nationalNumber: digits.slice(1), error: '' }
+  }
+  if (digits.length === 12 && digits.startsWith('91') && /^[6-9]/.test(digits.slice(2))) {
+    return { isValid: true, normalized: digits, nationalNumber: digits.slice(2), error: '' }
+  }
+  if (digits.length < 10 && !digits.startsWith('91')) {
+    return { isValid: false, normalized: '', nationalNumber: digits, error: `Enter 10-digit number (${digits.length}/10)` }
+  }
+  if (digits.length >= 7 && digits.length <= 15) {
+    return { isValid: true, normalized: digits, nationalNumber: digits, error: '' }
+  }
+  return { isValid: false, normalized: '', nationalNumber: digits, error: 'Enter a valid 10-digit mobile number' }
 })
+
+async function retryWhatsAppDelivery() {
+  if (!latestPaymentResult.value) return
+  const paymentId = latestPaymentResult.value._id || latestPaymentResult.value.id
+  if (!paymentId) return
+
+  retryingWhatsApp.value = true
+  try {
+    const res = await sendWhatsAppBillApi({
+      paymentId,
+      customerPhone: customerWhatsAppPhone.value.trim() || undefined,
+      customerName: customerWhatsAppName.value.trim() || undefined,
+      forceRetry: true,
+    })
+    latestPaymentResult.value.whatsappDelivery = res.data?.delivery || res.data
+    latestPaymentResult.value.waMeFallback = res.data?.waMeFallback
+    const status = latestPaymentResult.value.whatsappDelivery?.deliveryStatus
+    if (status === 'ACCEPTED' || status === 'SENT' || status === 'DELIVERED') {
+      toast.success('✅ WhatsApp delivery triggered successfully!')
+    } else {
+      toast.error(latestPaymentResult.value.whatsappDelivery?.errorMessage || 'Delivery retry failed')
+    }
+    fetchDashboard(true)
+  } catch (err: any) {
+    toast.error(err.message || 'Failed to retry WhatsApp delivery')
+  } finally {
+    retryingWhatsApp.value = false
+  }
+}
+
+async function markWhatsAppManualConfirmed() {
+  if (!latestPaymentResult.value) return
+  const paymentId = latestPaymentResult.value._id || latestPaymentResult.value.id
+  if (!paymentId) return
+
+  confirmingManual.value = true
+  try {
+    const res = await confirmManualWhatsAppSend({
+      paymentId,
+      notes: 'Cashier confirmed manual send via WhatsApp Web/App'
+    })
+    latestPaymentResult.value.whatsappDelivery = res.data
+    toast.success('✓ Marked as sent via WhatsApp!')
+    fetchDashboard(true)
+  } catch (err: any) {
+    toast.error(err.message || 'Failed to confirm manual send')
+  } finally {
+    confirmingManual.value = false
+  }
+}
+
+function openWaMeLink(url?: string) {
+  if (url) {
+    window.open(url, '_blank')
+    return
+  }
+  const rawPhone = customerWhatsAppPhone.value.trim() || latestPaymentResult.value?.whatsappDelivery?.recipientPhone || latestPaymentResult.value?.orderId?.customerPhone || ''
+  const phoneDigits = rawPhone.replace(/\D/g, '')
+  const normalized = phoneDigits.length === 10 && /^[6-9]/.test(phoneDigits)
+    ? '91' + phoneDigits
+    : (phoneDigits.startsWith('0') && phoneDigits.length === 11 ? '91' + phoneDigits.slice(1) : phoneDigits)
+
+  const receiptNumber = latestPaymentResult.value?.receiptNumber || 'BILL'
+  const total = Number(latestPaymentResult.value?.totalAmount || 0).toFixed(2)
+  const pMethod = String(latestPaymentResult.value?.paymentMethod || 'Cash').replace(/_/g, ' ')
+  const restName = restaurant.value?.name || 'Hariom Restaurant'
+  const guestName = customerWhatsAppName.value || latestPaymentResult.value?.orderId?.customerName || 'Valued Guest'
+
+  // Dynamic Live Invoice URL resolution
+  let pdfUrl = latestPaymentResult.value?.whatsappDelivery?.pdfUrl || ''
+  const isLocalHost = !pdfUrl || pdfUrl.includes('localhost') || pdfUrl.includes('127.0.0.1')
+  if (isLocalHost) {
+    const liveApi = getApiBaseUrl()
+    const liveOrigin = (typeof window !== 'undefined' && window.location.origin && !window.location.hostname.includes('localhost') && !window.location.hostname.includes('127.0.0.1'))
+      ? window.location.origin
+      : ''
+    const configuredPublicUrl = import.meta.env.VITE_PUBLIC_APP_URL || import.meta.env.VITE_APP_URL || ''
+    const base = liveOrigin || (liveApi && !liveApi.includes('localhost') ? liveApi : '') || configuredPublicUrl
+    if (base) {
+      pdfUrl = `${base.replace(/\/$/, '')}/api/whatsapp/invoices/${encodeURIComponent(receiptNumber)}/pdf`
+    } else {
+      pdfUrl = `https://dawatdesk-backend.vercel.app/api/whatsapp/invoices/${encodeURIComponent(receiptNumber)}/pdf`
+    }
+  }
+
+  const lines = [
+    `✨ *${restName}*`,
+    '',
+    `Dear ${guestName},`,
+    '',
+    'Thank you for dining with us! Your payment has been received successfully. 🎉',
+    '',
+    '🧾 *PAYMENT RECEIPT*',
+    '━━━━━━━━━━━━━━',
+    `*Amount Paid:* ₹${total}`,
+    `*Payment Mode:* ${pMethod}`,
+    '*Status:* ✅ PAID',
+    '━━━━━━━━━━━━━━',
+    '',
+    '📄 *Your Digital Invoice*',
+    `🔗 Download PDF: ${pdfUrl}`,
+    '',
+    `Thank you for choosing *${restName}* ❤️`,
+    '',
+    `*Team ${restName}*`,
+    '',
+    '_Powered by DawatDesk POS_',
+    '🌐 https://dawatdesk-marketing.vercel.app/'
+  ]
+  const text = lines.join('\n')
+  const waUrl = `https://wa.me/${normalized}?text=${encodeURIComponent(text)}`
+  window.open(waUrl, '_blank')
+}
+
+function openHistoryPaymentWhatsApp(payment: any) {
+  latestPaymentResult.value = payment
+  customerWhatsAppPhone.value = payment.whatsappDelivery?.recipientPhone || payment.orderId?.customerPhone || ''
+  customerWhatsAppName.value = payment.whatsappDelivery?.customerName || payment.orderId?.customerName || ''
+  whatsAppDeliveryModalOpen.value = true
+}
+
+function getWhatsAppBadge(delivery: any) {
+  if (!delivery) {
+    return { label: 'Not Sent', color: 'bg-muted text-muted-foreground border-border' }
+  }
+  const status = (delivery.deliveryStatus || '').toUpperCase()
+  if (status === 'DELIVERED') return { label: '✓✓ Delivered', color: 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border-emerald-500/30' }
+  if (status === 'READ') return { label: '✓✓ Read', color: 'bg-blue-500/15 text-blue-600 dark:text-blue-400 border-blue-500/30' }
+  if (status === 'SENT') return { label: '✓ Sent', color: 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border-emerald-500/30' }
+  if (status === 'ACCEPTED') return { label: '✓ Accepted', color: 'bg-blue-500/15 text-blue-600 dark:text-blue-400 border-blue-500/30' }
+  if (status === 'PROCESSING' || status === 'PENDING') return { label: '⏳ Processing', color: 'bg-amber-500/15 text-amber-600 dark:text-amber-400 border-amber-500/30 animate-pulse' }
+  if (status === 'FAILED') return { label: '⚠️ Failed', color: 'bg-destructive/15 text-destructive border-destructive/30' }
+  return { label: status, color: 'bg-muted text-muted-foreground' }
+}
 
 function selectOrder(orderId: string) {
   selectedId.value = orderId
@@ -736,17 +943,42 @@ async function handleCompletePayment() {
 
   actionLoading.value = true
   const orderId = selectedOrder.value.id || selectedOrder.value._id
+  const targetPhone = customerPhoneValidation.value.isValid
+    ? customerPhoneValidation.value.normalized
+    : customerWhatsAppPhone.value.trim() || undefined
+
   try {
-    await createPayment({
+    const res = await createPayment({
       orderId,
       subtotal: subtotalBeforeDiscount.value,
       discount: discountValue.value,
       paymentMethod: method.value,
+      sendWhatsAppBill: sendWhatsAppBill.value,
+      customerPhone: targetPhone,
+      customerName: customerWhatsAppName.value.trim() || undefined,
     })
 
     const changeMsg = method.value === 'CASH' && changeAmount.value > 0
       ? ` · Return ₹${changeAmount.value.toFixed(0)} change` : ''
     toast.success(`✅ Payment of ₹${total.value.toFixed(0)} received via ${method.value}${changeMsg}`)
+
+    latestPaymentResult.value = res.data
+
+    if (sendWhatsAppBill.value) {
+      const waDelivery = res.data?.whatsappDelivery
+      if (waDelivery && ['ACCEPTED', 'SENT', 'DELIVERED', 'READ'].includes(waDelivery.deliveryStatus)) {
+        toast.success(`📱 WhatsApp bill sent to ${waDelivery.recipientPhone || targetPhone || customerWhatsAppPhone.value}`)
+      } else if (waDelivery?.deliveryStatus === 'FAILED') {
+        toast.warning(`⚠️ Payment received, but WhatsApp delivery failed: ${waDelivery.errorMessage || 'Check number'}`)
+      }
+      whatsAppDeliveryModalOpen.value = true
+    }
+
+    if (res.data?.whatsappDelivery?.recipientPhone) {
+      customerWhatsAppPhone.value = res.data.whatsappDelivery.recipientPhone
+    }
+
+    lastLoadedOrderId.value = null
     selectedId.value        = null
     mobileInvoiceOpen.value = false
     cashGiven.value         = ''
@@ -869,6 +1101,15 @@ function handleCashierTabChange(tab: string) {
 
       <!-- Quick Action Buttons -->
       <div class="grid grid-cols-2 sm:flex sm:items-center gap-2 sm:gap-2.5">
+        <Button
+          v-if="isHotelModuleEnabled"
+          @click="router.push('/cashier/hotel')"
+          variant="outline"
+          class="font-bold text-xs sm:text-sm h-9 sm:h-10 px-3 sm:px-4 border-indigo-500/40 bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-600 dark:text-indigo-400 flex items-center justify-center gap-1.5 cursor-pointer shadow-xs transition"
+          title="Open Hotel Rooms POS & Guest Booking Grid"
+        >
+          <BedDouble class="h-3.5 w-3.5 sm:h-4 sm:w-4" /> Hotel Rooms POS
+        </Button>
         <Button
           @click="parcelDialogOpen = true"
           class="gradient-primary text-primary-foreground font-bold text-xs sm:text-sm h-9 sm:h-10 px-3 sm:px-4 shadow-glow flex items-center justify-center gap-1.5 cursor-pointer"
@@ -1235,23 +1476,25 @@ function handleCashierTabChange(tab: string) {
 
           <!-- 2. Pinned Bottom Panel (Zero Scrolling Required) -->
           <div class="border-t border-border bg-card shrink-0">
-            <!-- Discount Section (in Edit Mode) -->
-            <div v-if="editMode" class="p-3 border-b border-border bg-primary/5 space-y-2">
+            <!-- Discount Section (Always Available & Optional in Rupees / %) -->
+            <div class="p-3 border-b border-border bg-primary/5 space-y-2">
               <div class="flex items-center justify-between text-xs font-bold text-primary">
                 <div class="flex items-center gap-1.5">
-                  <Tag class="h-3.5 w-3.5" /> Discount
+                  <Tag class="h-3.5 w-3.5" /> Discount <span class="text-muted-foreground font-normal text-[10px]">(Optional)</span>
                 </div>
                 <span v-if="discountValue > 0" class="text-success font-semibold">− ₹{{ discountValue.toFixed(0) }}</span>
               </div>
               <div class="flex gap-2">
                 <div class="flex rounded-lg border border-border overflow-hidden text-xs font-semibold">
                   <button
+                    type="button"
                     @click="discountType = 'fixed'"
                     :class="['px-2.5 py-1 transition cursor-pointer', discountType === 'fixed' ? 'bg-primary text-primary-foreground' : 'bg-background hover:bg-muted/40 text-muted-foreground']"
                   >
                     ₹ Flat
                   </button>
                   <button
+                    type="button"
                     @click="discountType = 'percent'"
                     :class="['px-2.5 py-1 transition cursor-pointer', discountType === 'percent' ? 'bg-primary text-primary-foreground' : 'bg-background hover:bg-muted/40 text-muted-foreground']"
                   >
@@ -1267,7 +1510,7 @@ function handleCashierTabChange(tab: string) {
                     type="text"
                     inputmode="numeric"
                     pattern="[0-9]*"
-                    placeholder="0"
+                    placeholder="Enter discount"
                     class="w-full pl-6 pr-3 py-1 rounded-lg border border-border bg-background text-xs font-semibold focus:outline-none focus:ring-1 focus:ring-primary/40 tabular-nums"
                     @keydown="(e) => { if (!/^[0-9]$/.test(e.key) && !['Backspace','Delete','Tab','ArrowLeft','ArrowRight'].includes(e.key)) e.preventDefault() }"
                     @input="discountInput = discountInput.replace(/[^0-9]/g, '')"
@@ -1383,6 +1626,62 @@ function handleCashierTabChange(tab: string) {
 
               <!-- Normal Mode: Complete Payment & Download PDF -->
               <template v-else>
+                <!-- WhatsApp Delivery Option & Phone Input -->
+                <div class="p-2.5 rounded-xl border border-emerald-500/20 bg-emerald-500/5 space-y-2">
+                  <div class="flex items-center justify-between">
+                    <label class="flex items-center gap-1.5 cursor-pointer text-xs font-bold text-foreground select-none">
+                      <input
+                        type="checkbox"
+                        v-model="sendWhatsAppBill"
+                        class="h-3.5 w-3.5 rounded text-emerald-600 focus:ring-emerald-500 accent-emerald-600 cursor-pointer"
+                      />
+                      <span class="flex items-center gap-1 text-emerald-700 dark:text-emerald-400 font-semibold">
+                        <MessageCircle class="h-3.5 w-3.5" /> Send bill to WhatsApp
+                      </span>
+                    </label>
+                    <span v-if="customerPhoneValidation.isValid" class="text-[10px] text-emerald-600 dark:text-emerald-400 font-bold flex items-center gap-0.5">
+                      ✓ Valid
+                    </span>
+                    <span v-else-if="customerWhatsAppPhone" class="text-[10px] text-amber-500 font-medium">
+                      ⚠️ Incomplete
+                    </span>
+                  </div>
+
+                  <div v-if="sendWhatsAppBill" class="space-y-1.5">
+                    <div class="flex items-center rounded-lg border border-border bg-background focus-within:ring-2 focus-within:ring-emerald-500/50 focus-within:border-emerald-500 overflow-hidden shadow-2xs transition-all">
+                      <div class="px-2.5 py-1.5 bg-muted/60 border-r border-border text-[11px] font-bold text-muted-foreground select-none shrink-0 flex items-center gap-1">
+                        <span>🇮🇳</span>
+                        <span>+91</span>
+                      </div>
+                      <input
+                        v-model="customerWhatsAppPhone"
+                        type="tel"
+                        inputmode="numeric"
+                        placeholder="Enter 10-digit mobile number"
+                        class="flex-1 min-w-0 px-2.5 py-1.5 bg-transparent text-xs font-bold text-foreground focus:outline-none tabular-nums placeholder:text-muted-foreground/50"
+                        maxlength="15"
+                      />
+                      <button
+                        v-if="customerWhatsAppPhone"
+                        type="button"
+                        @click="customerWhatsAppPhone = ''"
+                        class="px-2 py-1 text-muted-foreground hover:text-foreground text-xs cursor-pointer"
+                        title="Clear number"
+                      >
+                        ✕
+                      </button>
+                    </div>
+                    <div v-if="customerPhoneValidation.isValid" class="text-[10px] text-emerald-600 dark:text-emerald-400 font-bold px-0.5 flex items-center gap-1">
+                      <span>✓</span>
+                      <span>Will send bill to +91 {{ customerPhoneValidation.nationalNumber }}</span>
+                    </div>
+                    <div v-else-if="customerWhatsAppPhone" class="text-[10px] text-amber-600 dark:text-amber-400 font-medium px-0.5 flex items-center gap-1">
+                      <span>⚠️</span>
+                      <span>{{ customerPhoneValidation.error || 'Enter a valid 10-digit mobile number' }}</span>
+                    </div>
+                  </div>
+                </div>
+
                 <Button
                   @click="handleCompletePayment"
                   :disabled="actionLoading || !cashValid"
@@ -1531,22 +1830,22 @@ function handleCashierTabChange(tab: string) {
 
           <!-- Mobile Pinned Checkout Panel (Always visible at the bottom) -->
           <div class="border-t border-border bg-card shrink-0 shadow-lg">
-            <!-- Discount in Edit Mode -->
-            <div v-if="editMode" class="p-3 border-b border-border bg-primary/5 space-y-2">
+            <!-- Discount Section (Always Available & Optional) -->
+            <div class="p-3 border-b border-border bg-primary/5 space-y-2">
               <div class="flex items-center justify-between text-xs font-bold text-primary">
-                <div class="flex items-center gap-1.5"><Tag class="h-3.5 w-3.5" /> Discount</div>
+                <div class="flex items-center gap-1.5"><Tag class="h-3.5 w-3.5" /> Discount <span class="text-muted-foreground font-normal text-[10px]">(Optional)</span></div>
                 <span v-if="discountValue > 0" class="text-success font-semibold">− ₹{{ discountValue.toFixed(0) }}</span>
               </div>
               <div class="flex gap-2">
                 <div class="flex rounded-lg border border-border overflow-hidden text-xs font-semibold">
-                  <button @click="discountType = 'fixed'" :class="['px-2.5 py-1', discountType === 'fixed' ? 'bg-primary text-primary-foreground' : 'bg-background text-muted-foreground']">₹ Flat</button>
-                  <button @click="discountType = 'percent'" :class="['px-2.5 py-1', discountType === 'percent' ? 'bg-primary text-primary-foreground' : 'bg-background text-muted-foreground']">% Off</button>
+                  <button type="button" @click="discountType = 'fixed'" :class="['px-2.5 py-1', discountType === 'fixed' ? 'bg-primary text-primary-foreground' : 'bg-background text-muted-foreground']">₹ Flat</button>
+                  <button type="button" @click="discountType = 'percent'" :class="['px-2.5 py-1', discountType === 'percent' ? 'bg-primary text-primary-foreground' : 'bg-background text-muted-foreground']">% Off</button>
                 </div>
                 <input
                   v-model="discountInput"
                   type="text"
                   inputmode="numeric"
-                  placeholder="0"
+                  placeholder="Enter discount"
                   class="flex-1 px-3 py-1 rounded-lg border border-border bg-background text-xs font-semibold focus:outline-none focus:ring-1 focus:ring-primary tabular-nums"
                 />
               </div>
@@ -1643,6 +1942,62 @@ function handleCashierTabChange(tab: string) {
                 </Button>
               </template>
               <template v-else>
+                <!-- WhatsApp Delivery Option & Phone Input on Mobile -->
+                <div class="p-2.5 rounded-xl border border-emerald-500/20 bg-emerald-500/5 space-y-1.5 mb-1.5">
+                  <div class="flex items-center justify-between">
+                    <label class="flex items-center gap-1.5 cursor-pointer text-xs font-bold text-foreground select-none">
+                      <input
+                        type="checkbox"
+                        v-model="sendWhatsAppBill"
+                        class="h-3.5 w-3.5 rounded text-emerald-600 focus:ring-emerald-500 accent-emerald-600 cursor-pointer"
+                      />
+                      <span class="flex items-center gap-1 text-emerald-700 dark:text-emerald-400 font-semibold text-[11px] sm:text-xs">
+                        <MessageCircle class="h-3.5 w-3.5" /> Send bill to WhatsApp
+                      </span>
+                    </label>
+                    <span v-if="customerPhoneValidation.isValid" class="text-[9px] text-emerald-600 dark:text-emerald-400 font-bold flex items-center gap-0.5">
+                      ✓ Valid
+                    </span>
+                    <span v-else-if="customerWhatsAppPhone" class="text-[9px] text-amber-500 font-medium">
+                      ⚠️ Incomplete
+                    </span>
+                  </div>
+
+                  <div v-if="sendWhatsAppBill" class="space-y-1">
+                    <div class="flex items-center rounded-lg border border-border bg-background focus-within:ring-2 focus-within:ring-emerald-500/50 focus-within:border-emerald-500 overflow-hidden shadow-2xs transition-all">
+                      <div class="px-2 py-1 bg-muted/60 border-r border-border text-[10px] font-bold text-muted-foreground select-none shrink-0 flex items-center gap-1">
+                        <span>🇮🇳</span>
+                        <span>+91</span>
+                      </div>
+                      <input
+                        v-model="customerWhatsAppPhone"
+                        type="tel"
+                        inputmode="numeric"
+                        placeholder="Enter 10-digit mobile number"
+                        class="flex-1 min-w-0 px-2 py-1 bg-transparent text-xs font-bold text-foreground focus:outline-none tabular-nums placeholder:text-muted-foreground/50"
+                        maxlength="15"
+                      />
+                      <button
+                        v-if="customerWhatsAppPhone"
+                        type="button"
+                        @click="customerWhatsAppPhone = ''"
+                        class="px-1.5 py-0.5 text-muted-foreground hover:text-foreground text-xs cursor-pointer"
+                        title="Clear number"
+                      >
+                        ✕
+                      </button>
+                    </div>
+                    <div v-if="customerPhoneValidation.isValid" class="text-[9px] text-emerald-600 dark:text-emerald-400 font-bold px-0.5 flex items-center gap-1">
+                      <span>✓</span>
+                      <span>Will send bill to +91 {{ customerPhoneValidation.nationalNumber }}</span>
+                    </div>
+                    <div v-else-if="customerWhatsAppPhone" class="text-[9px] text-amber-600 dark:text-amber-400 font-medium px-0.5 flex items-center gap-1">
+                      <span>⚠️</span>
+                      <span>{{ customerPhoneValidation.error || 'Enter a valid 10-digit mobile number' }}</span>
+                    </div>
+                  </div>
+                </div>
+
                 <Button
                   @click="handleCompletePayment"
                   :disabled="actionLoading || !cashValid"
@@ -1801,13 +2156,14 @@ function handleCashierTabChange(tab: string) {
                 <th class="text-left px-5 py-3 font-medium">Order / Table</th>
                 <th class="text-right px-5 py-3 font-medium">Amount</th>
                 <th class="text-left px-5 py-3 font-medium">Method</th>
+                <th class="text-left px-5 py-3 font-medium">WhatsApp Bill</th>
                 <th class="text-left px-5 py-3 font-medium">Time</th>
                 <th class="text-right px-5 py-3 font-medium">Receipt</th>
               </tr>
             </thead>
             <tbody>
               <tr v-if="filteredTransactions.length === 0">
-                <td colspan="6" class="px-5 py-8 text-center text-muted-foreground">
+                <td colspan="7" class="px-5 py-8 text-center text-muted-foreground">
                   <span v-if="historySearch">No transactions match "{{ historySearch }}"</span>
                   <span v-else>No transactions recorded yet.</span>
                 </td>
@@ -1827,6 +2183,26 @@ function handleCashierTabChange(tab: string) {
                 </td>
                 <td class="px-5 py-3 text-right tabular-nums font-bold">₹{{ (t.totalAmount || 0).toFixed(0) }}</td>
                 <td class="px-5 py-3"><Badge variant="secondary" class="text-[10px]">{{ t.paymentMethod }}</Badge></td>
+                <td class="px-5 py-3">
+                  <div class="flex items-center gap-1.5">
+                    <span
+                      :class="['px-2 py-0.5 rounded-full text-[10px] font-bold border inline-flex items-center gap-1 cursor-pointer hover:opacity-85 transition', getWhatsAppBadge(t.whatsappDelivery).color]"
+                      @click="openHistoryPaymentWhatsApp(t)"
+                      title="Click to view WhatsApp delivery details or send"
+                    >
+                      <MessageCircle class="h-2.5 w-2.5" />
+                      {{ getWhatsAppBadge(t.whatsappDelivery).label }}
+                    </span>
+                    <button
+                      v-if="!t.whatsappDelivery || t.whatsappDelivery.deliveryStatus === 'FAILED'"
+                      @click="openHistoryPaymentWhatsApp(t)"
+                      class="text-muted-foreground hover:text-emerald-600 transition p-1 cursor-pointer"
+                      title="Send WhatsApp Bill"
+                    >
+                      <RefreshCw class="h-3 w-3" />
+                    </button>
+                  </div>
+                </td>
                 <td class="px-5 py-3 text-muted-foreground text-xs">{{ formatTime(t.paidAt || t.createdAt) }}</td>
                 <td class="px-5 py-3 text-right">
                   <Button variant="ghost" size="sm" @click="downloadPDF(t, true)" class="h-7 text-xs">
@@ -2455,6 +2831,171 @@ function handleCashierTabChange(tab: string) {
           </div>
           <Button @click="addItemDialogOpen = false" class="gradient-primary text-primary-foreground font-bold text-xs h-8 px-4">
             Done Adding
+          </Button>
+        </div>
+      </DialogContent>
+    </Dialog>
+
+    <!-- ═══════════════════════════════════════════════════════════════════════ -->
+    <!-- MODAL 5: WHATSAPP BILL DELIVERY STATUS & ACTIONS (METHOD A & B)          -->
+    <!-- ═══════════════════════════════════════════════════════════════════════ -->
+    <Dialog :open="whatsAppDeliveryModalOpen" @update:open="(val: boolean) => { if (!val) closeWhatsAppModal(); else whatsAppDeliveryModalOpen = val; }">
+      <DialogContent class="sm:max-w-lg p-0 overflow-hidden rounded-3xl border border-border shadow-2xl">
+        <DialogHeader class="p-5 pr-10 border-b border-border bg-card shrink-0">
+          <DialogTitle class="font-display text-lg font-bold flex items-center gap-2">
+            <div class="h-8 w-8 rounded-xl bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 flex items-center justify-center">
+              <MessageCircle class="h-4.5 w-4.5" />
+            </div>
+            <span>WhatsApp Invoice Delivery</span>
+          </DialogTitle>
+          <DialogDescription class="text-xs text-muted-foreground mt-1">
+            Official WhatsApp Business Cloud delivery & manual wa.me fallback
+          </DialogDescription>
+        </DialogHeader>
+
+        <div class="p-5 space-y-4 max-h-[75vh] overflow-y-auto">
+          <!-- Invoice summary card -->
+          <div class="p-3.5 rounded-2xl bg-muted/30 border border-border flex items-center justify-between">
+            <div>
+              <div class="text-[10px] uppercase font-bold text-muted-foreground tracking-wider">Invoice / Receipt</div>
+              <div class="text-sm font-extrabold text-foreground mt-0.5">
+                {{ latestPaymentResult?.receiptNumber || 'BILL-' + (latestPaymentResult?._id || '').slice(-6) }}
+              </div>
+              <div class="text-xs text-muted-foreground mt-0.5">
+                Customer: <span class="font-semibold text-foreground">{{ latestPaymentResult?.orderId?.customerName || latestPaymentResult?.customerName || customerWhatsAppName || 'Valued Guest' }}</span>
+              </div>
+            </div>
+            <div class="text-right">
+              <div class="text-[10px] uppercase font-bold text-muted-foreground tracking-wider">Amount Paid</div>
+              <div class="text-base font-extrabold text-emerald-600 dark:text-emerald-400 mt-0.5">
+                ₹{{ Number(latestPaymentResult?.totalAmount || 0).toFixed(0) }}
+              </div>
+              <Badge variant="outline" class="text-[9px] mt-0.5">
+                {{ latestPaymentResult?.paymentMethod || 'PAID' }}
+              </Badge>
+            </div>
+          </div>
+
+          <!-- Recipient phone verification box -->
+          <div class="p-3.5 rounded-2xl border border-border space-y-2 bg-card">
+            <div class="flex items-center justify-between text-xs">
+              <span class="font-semibold text-muted-foreground">Recipient WhatsApp Number:</span>
+              <span v-if="customerPhoneValidation.isValid" class="text-[10px] font-bold text-emerald-600 dark:text-emerald-400">
+                ✓ Validated (+91 {{ customerPhoneValidation.nationalNumber }})
+              </span>
+              <span v-else class="text-[10px] font-bold text-destructive">
+                ⚠️ Invalid Number
+              </span>
+            </div>
+            <div class="flex items-center rounded-xl border border-border bg-background focus-within:ring-2 focus-within:ring-emerald-500/50 focus-within:border-emerald-500 overflow-hidden shadow-2xs transition-all">
+              <div class="px-3 py-2 bg-muted/60 border-r border-border text-xs font-bold text-muted-foreground select-none shrink-0 flex items-center gap-1.5">
+                <span>🇮🇳</span>
+                <span>+91</span>
+              </div>
+              <input
+                v-model="customerWhatsAppPhone"
+                type="tel"
+                inputmode="numeric"
+                placeholder="Enter 10-digit mobile number"
+                class="flex-1 min-w-0 px-3 py-2 bg-transparent text-sm font-bold text-foreground focus:outline-none tabular-nums placeholder:text-muted-foreground/50"
+                maxlength="15"
+              />
+              <button
+                v-if="customerWhatsAppPhone"
+                type="button"
+                @click="customerWhatsAppPhone = ''"
+                class="px-2.5 py-1 text-muted-foreground hover:text-foreground text-xs cursor-pointer"
+                title="Clear number"
+              >
+                ✕
+              </button>
+            </div>
+            <p v-if="customerPhoneValidation.error && customerWhatsAppPhone" class="text-[11px] text-destructive font-medium">
+              {{ customerPhoneValidation.error }}
+            </p>
+          </div>
+
+          <!-- Live Delivery Status Banner -->
+          <div
+            v-if="latestPaymentResult?.whatsappDelivery?.deliveryStatus === 'DELIVERED' || latestPaymentResult?.whatsappDelivery?.deliveryStatus === 'READ'"
+            class="p-3.5 rounded-2xl bg-emerald-500/10 border border-emerald-500/30 flex items-start gap-3"
+          >
+            <CheckCheck class="h-5 w-5 text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" />
+            <div class="text-xs">
+              <div class="font-bold text-emerald-700 dark:text-emerald-400">
+                Delivered to Customer's WhatsApp!
+              </div>
+              <div class="text-muted-foreground mt-0.5">
+                The official tax invoice PDF was received on {{ latestPaymentResult.whatsappDelivery.recipientPhone }}.
+              </div>
+            </div>
+          </div>
+
+          <div
+            v-else-if="latestPaymentResult?.whatsappDelivery?.deliveryStatus === 'FAILED'"
+            class="p-3.5 rounded-2xl bg-destructive/10 border border-destructive/30 flex items-start gap-3"
+          >
+            <AlertCircle class="h-5 w-5 text-destructive shrink-0 mt-0.5" />
+            <div class="text-xs">
+              <div class="font-bold text-destructive">
+                Automatic WhatsApp Delivery Failed
+              </div>
+              <div class="text-muted-foreground mt-0.5">
+                {{ latestPaymentResult.whatsappDelivery.errorMessage || 'Meta API could not deliver the message. Please use the WhatsApp Web fallback below.' }}
+              </div>
+            </div>
+          </div>
+
+          <!-- Method B: WhatsApp wa.me fallback section -->
+          <div class="p-3.5 rounded-2xl bg-gradient-to-br from-emerald-500/10 via-emerald-500/5 to-transparent border border-emerald-500/20 space-y-2.5">
+            <div class="flex items-center justify-between">
+              <span class="text-xs font-bold text-foreground flex items-center gap-1.5">
+                <span class="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
+                Method B: WhatsApp Direct Chat (wa.me)
+              </span>
+              <span class="text-[10px] text-muted-foreground">Always Available</span>
+            </div>
+            <p class="text-[11px] text-muted-foreground">
+              Opens WhatsApp with a pre-filled tax invoice greeting, direct PDF download link, and official <strong>DawatDesk</strong> site branding.
+            </p>
+            <div class="flex flex-col sm:flex-row gap-2 pt-1">
+              <button
+                @click="openWaMeLink()"
+                class="flex-1 py-2 px-3 rounded-xl bg-[#25D366] hover:bg-[#20ba59] text-white font-bold text-xs flex items-center justify-center gap-2 shadow-sm transition active:scale-[0.99] cursor-pointer"
+              >
+                <MessageCircle class="h-4 w-4" />
+                <span>Open in WhatsApp</span>
+                <ExternalLink class="h-3 w-3 opacity-80" />
+              </button>
+
+              <button
+                @click="markWhatsAppManualConfirmed()"
+                :disabled="confirmingManual"
+                class="py-2 px-3 rounded-xl border border-emerald-500/40 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-700 dark:text-emerald-300 font-bold text-xs flex items-center justify-center gap-1.5 transition cursor-pointer"
+              >
+                <Check class="h-3.5 w-3.5" />
+                <span>{{ confirmingManual ? 'Saving...' : 'Mark as Sent' }}</span>
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Dialog Footer: Download PDF & Done / Next Bill side-by-side -->
+        <div class="p-4 border-t border-border bg-muted/20 flex items-center justify-between gap-3">
+          <Button
+            @click="downloadPDF(latestPaymentResult, true)"
+            variant="outline"
+            class="h-9.5 px-4 text-xs font-bold flex items-center gap-1.5 cursor-pointer border-border hover:border-primary/40"
+          >
+            <Download class="h-3.5 w-3.5" />
+            <span>Download PDF</span>
+          </Button>
+
+          <Button
+            @click="closeWhatsAppModal"
+            class="gradient-primary text-primary-foreground font-bold text-xs h-9.5 px-5 cursor-pointer shadow-soft"
+          >
+            Done / Next Bill
           </Button>
         </div>
       </DialogContent>

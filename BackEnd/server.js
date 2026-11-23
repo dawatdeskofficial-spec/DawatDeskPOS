@@ -17,6 +17,8 @@ const paymentRoutes = require('./routes/paymentRoutes');
 const userRoutes = require('./routes/userRoutes');
 const systemSettingsRoutes = require('./routes/systemSettingsRoutes');
 const waitingQueueRoutes = require('./routes/waitingQueueRoutes');
+const whatsappRoutes = require('./routes/whatsappRoutes');
+const hotelRoutes = require('./routes/hotelRoutes');
 
 // Initialize Express app
 const app = express();
@@ -35,6 +37,15 @@ const corsOptions = {
 app.use(cors(corsOptions));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+
+// Standard Security Headers
+app.use((req, res, next) => {
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-Frame-Options', 'SAMEORIGIN');
+  res.setHeader('X-XSS-Protection', '1; mode=block');
+  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+  next();
+});
 
 // Logging middleware
 app.use(
@@ -106,6 +117,8 @@ app.use('/api/payments', paymentRoutes);
 app.use('/api/users', userRoutes);
 app.use('/api/settings', systemSettingsRoutes);
 app.use('/api/waiting-queue', waitingQueueRoutes);
+app.use('/api/whatsapp', whatsappRoutes);
+app.use('/api/hotel', hotelRoutes);
 
 // 404 handler
 app.use((req, res) => {

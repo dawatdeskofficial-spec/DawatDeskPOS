@@ -4,12 +4,16 @@ import { useRouter } from 'vue-router'
 import {
   Plus, Search, Edit3, X, Building2, Eye, Power,
   AlertTriangle, Phone, Mail, MapPin, CheckCircle2, Lock,
-  LayoutDashboard
+  LayoutDashboard, MessageCircle, RefreshCw, AlertCircle, BedDouble
 } from 'lucide-vue-next'
 import RoleLayout from '@/components/RoleLayout.vue'
 import PageHeader from '@/components/PageHeader.vue'
 import { adminNav } from '@/lib/nav'
-import { getRestaurants, createRestaurant, updateRestaurant, getAllUsers } from '@/lib/api'
+import {
+  getRestaurants, createRestaurant, updateRestaurant, getAllUsers,
+  getWhatsAppConfig, updateWhatsAppConfig, testWhatsAppConnection,
+  toggleHotelFacility
+} from '@/lib/api'
 import { useAuthStore } from '@/stores/auth'
 import Button from '@/components/ui/Button.vue'
 import Input from '@/components/ui/Input.vue'
@@ -76,6 +80,13 @@ const statusToggleConfirm = ref<{ isOpen: boolean; target: any | null; nextStatu
   nextStatus: 'INACTIVE'
 })
 
+// Hotel Facility Toggle Confirmation
+const hotelToggleConfirm = ref<{ isOpen: boolean; target: any | null; enable: boolean }>({
+  isOpen: false,
+  target: null,
+  enable: false
+})
+
 const formState = ref({
   name: '',
   location: '',
@@ -85,7 +96,101 @@ const formState = ref({
   maxTables: 20,
   gstPercentage: 5,
   status: 'ACTIVE',
+  facilities: {
+    hotelRoomManagement: false,
+  },
 })
+
+// WhatsApp Multi-Tenant Config Modal State
+const isWhatsAppDialogOpen = ref(false)
+const selectedWhatsAppRestaurant = ref<any>(null)
+const whatsAppConfigLoading = ref(false)
+const whatsAppConfigSaving = ref(false)
+const whatsAppTesting = ref(false)
+const whatsAppTestResult = ref<any>(null)
+
+const whatsAppForm = ref({
+  isEnabled: true,
+  phoneNumberId: '',
+  businessAccountId: '',
+  accessToken: '',
+  templateName: 'dawatdesk_invoice_v1',
+  templateLanguage: 'en',
+  autoSendDefault: true,
+  status: 'ACTIVE' as 'ACTIVE' | 'INACTIVE' | 'TEST_MODE',
+  isAccessTokenConfigured: false,
+})
+
+async function openWhatsAppConfigDialog(restaurant: any) {
+  selectedWhatsAppRestaurant.value = restaurant
+  whatsAppConfigLoading.value = true
+  whatsAppTestResult.value = null
+  isWhatsAppDialogOpen.value = true
+
+  const restId = restaurant.id || restaurant._id
+  try {
+    const res = await getWhatsAppConfig(restId)
+    if (res.data) {
+      whatsAppForm.value = {
+        isEnabled: res.data.isEnabled !== false,
+        phoneNumberId: res.data.phoneNumberId || '',
+        businessAccountId: res.data.businessAccountId || '',
+        accessToken: res.data.accessToken || '',
+        templateName: res.data.templateName || 'dawatdesk_invoice_v1',
+        templateLanguage: res.data.templateLanguage || 'en',
+        autoSendDefault: res.data.autoSendDefault !== false,
+        status: res.data.status || 'ACTIVE',
+        isAccessTokenConfigured: Boolean(res.data.isAccessTokenConfigured),
+      }
+    }
+  } catch (err: any) {
+    toast.error(err.message || 'Failed to load WhatsApp configuration')
+  } finally {
+    whatsAppConfigLoading.value = false
+  }
+}
+
+async function saveWhatsAppConfig() {
+  if (!selectedWhatsAppRestaurant.value) return
+  const restId = selectedWhatsAppRestaurant.value.id || selectedWhatsAppRestaurant.value._id
+
+  whatsAppConfigSaving.value = true
+  try {
+    const res = await updateWhatsAppConfig(restId, whatsAppForm.value)
+    if (res.success) {
+      toast.success(`WhatsApp configuration saved for ${selectedWhatsAppRestaurant.value.name}!`)
+      isWhatsAppDialogOpen.value = false
+    } else {
+      toast.error(res.message || 'Failed to save configuration')
+    }
+  } catch (err: any) {
+    toast.error(err.message || 'Error saving WhatsApp configuration')
+  } finally {
+    whatsAppConfigSaving.value = false
+  }
+}
+
+async function testWhatsAppConfig() {
+  if (!selectedWhatsAppRestaurant.value) return
+  const restId = selectedWhatsAppRestaurant.value.id || selectedWhatsAppRestaurant.value._id
+
+  whatsAppTesting.value = true
+  whatsAppTestResult.value = null
+  try {
+    const res = await testWhatsAppConnection(restId)
+    whatsAppTestResult.value = res.data
+    if (res.data?.isConfigured) {
+      toast.success('WhatsApp API connection verified!')
+    } else {
+      toast.info('Test mode active (simulated delivery)')
+    }
+  } catch (err: any) {
+    toast.error(err.message || 'Test connection failed')
+    whatsAppTestResult.value = { message: err.message, isConfigured: false }
+  } finally {
+    whatsAppTesting.value = false
+  }
+}
 
 async function fetchRestaurants() {
   loading.value = true
@@ -125,6 +230,9 @@ function resetForm() {
     maxTables: 20,
     gstPercentage: 5,
     status: 'ACTIVE',
+    facilities: {
+      hotelRoomManagement: false,
+    },
   }
   activeRestaurant.value = null
 }
@@ -145,8 +253,43 @@ function openEditDialog(r: any) {
     maxTables: r.maxTables || 20,
     gstPercentage: r.gstPercentage || 5,
     status: r.status || (r.isActive !== false ? 'ACTIVE' : 'INACTIVE'),
+    facilities: {
+      hotelRoomManagement: Boolean(r.facilities?.hotelRoomManagement),
+    },
   }
   isDialogOpen.value = true
+}
+
+function promptHotelToggle(r: any) {
+  const current = Boolean(r.facilities?.hotelRoomManagement)
+  hotelToggleConfirm.value = {
+    isOpen: true,
+    target: r,
+    enable: !current,
+  }
+}
+
+async function confirmHotelToggle() {
+  const target = hotelToggleConfirm.value.target
+  if (!target) return
+  const rId = target.id || target._id
+  const nextVal = hotelToggleConfirm.value.enable
+
+  try {
+    await toggleHotelFacility(rId, nextVal)
+    if (!target.facilities) target.facilities = {}
+    target.facilities.hotelRoomManagement = nextVal
+    toast.success(
+      nextVal
+        ? `Hotel Room Management is now ENABLED for ${target.name}. Default room categories seeded.`
+        : `Hotel Room Management has been DISABLED for ${target.name}. Historical records preserved.`
+    )
+    await fetchRestaurants()
+  } catch (err: any) {
+    toast.error(err.message || 'Failed to update hotel facility')
+  } finally {
+    hotelToggleConfirm.value = { isOpen: false, target: null, enable: false }
+  }
 }
 
 // ── Inspect Restaurant: Opens full Restaurant Admin portal for that venue ────
@@ -309,14 +452,17 @@ async function handleSave() {
           >
             <!-- Card Body -->
             <div class="p-4.5 space-y-3.5">
-              <!-- Top Header: Avatar + Name + Status Badge -->
+              <!-- Top Header: Avatar + Name + Status & Facilities Badges -->
               <div class="flex items-start justify-between gap-3">
-                <div class="flex items-center gap-3 min-w-0">
+                <div class="flex items-center gap-3 min-w-0 flex-1">
                   <div class="h-11 w-11 rounded-2xl gradient-primary text-primary-foreground flex items-center justify-center font-black text-base shadow-xs shrink-0 group-hover:scale-105 transition">
                     {{ (r.name || 'R').charAt(0).toUpperCase() }}
                   </div>
-                  <div class="min-w-0">
-                    <h3 class="font-display font-bold text-sm sm:text-base text-foreground truncate leading-tight group-hover:text-primary transition">
+                  <div class="min-w-0 flex-1">
+                    <h3
+                      class="font-display font-bold text-sm sm:text-base text-foreground truncate leading-tight group-hover:text-primary transition"
+                      :title="r.name"
+                    >
                       {{ r.name }}
                     </h3>
                     <div class="flex items-center gap-1 text-xs text-muted-foreground mt-1 truncate">
@@ -326,19 +472,30 @@ async function handleSave() {
                   </div>
                 </div>
 
-                <!-- Status Badge -->
-                <Badge
-                  v-if="(r.status || (r.isActive !== false ? 'ACTIVE' : 'INACTIVE')).toUpperCase() === 'ACTIVE'"
-                  class="bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20 text-[10px] font-bold px-2 py-0.5 gap-1 shrink-0 rounded-lg"
-                >
-                  <span class="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" /> Active
-                </Badge>
-                <Badge
-                  v-else
-                  class="bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-500/20 text-[10px] font-bold px-2 py-0.5 gap-1 shrink-0 rounded-lg"
-                >
-                  <Lock class="h-2.5 w-2.5" /> Inactive
-                </Badge>
+                <!-- Status & Facilities Badges: Stacked vertically on the right to preserve horizontal room for name -->
+                <div class="flex flex-col items-end gap-1 shrink-0">
+                  <Badge
+                    v-if="(r.status || (r.isActive !== false ? 'ACTIVE' : 'INACTIVE')).toUpperCase() === 'ACTIVE'"
+                    class="bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20 text-[10px] font-bold px-2 py-0.5 gap-1 shrink-0 rounded-lg"
+                  >
+                    <span class="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" /> Active
+                  </Badge>
+                  <Badge
+                    v-else
+                    class="bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-500/20 text-[10px] font-bold px-2 py-0.5 gap-1 shrink-0 rounded-lg"
+                  >
+                    <Lock class="h-2.5 w-2.5" /> Inactive
+                  </Badge>
+
+                  <Badge
+                    v-if="r.facilities && r.facilities.hotelRoomManagement"
+                    class="bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border-indigo-500/25 text-[10px] font-bold px-2 py-0.5 gap-1 shrink-0 rounded-lg cursor-pointer hover:bg-indigo-500/20 transition"
+                    @click="promptHotelToggle(r)"
+                    title="Hotel Room Management is enabled. Click to manage."
+                  >
+                    <BedDouble class="h-2.5 w-2.5" /> Hotel
+                  </Badge>
+                </div>
               </div>
 
               <!-- Metrics Stats Strip -->
@@ -382,39 +539,71 @@ async function handleSave() {
               <!-- Primary: Open Restaurant Admin Portal Viewport -->
               <Button
                 size="sm"
-                class="flex-1 gradient-primary text-primary-foreground font-bold h-8.5 rounded-xl text-xs gap-1.5 shadow-xs hover:brightness-110 cursor-pointer"
+                class="flex-1 min-w-0 gradient-primary text-primary-foreground font-bold h-8.5 rounded-xl text-xs gap-1.5 shadow-xs hover:brightness-110 cursor-pointer truncate"
                 @click="inspectRestaurant(r)"
                 title="Inspect and open Restaurant Admin Portal"
               >
-                <LayoutDashboard class="h-3.5 w-3.5" />
-                <span>Restaurant Admin</span>
+                <LayoutDashboard class="h-3.5 w-3.5 shrink-0" />
+                <span class="truncate">Restaurant Admin</span>
               </Button>
 
-              <!-- Secondary: Edit Settings -->
-              <Button
-                size="sm"
-                variant="outline"
-                class="h-8.5 w-8.5 p-0 rounded-xl hover:bg-muted cursor-pointer shrink-0 border-border"
-                @click="openEditDialog(r)"
-                title="Edit Restaurant Details"
-              >
-                <Edit3 class="h-3.5 w-3.5 text-muted-foreground hover:text-foreground" />
-              </Button>
+              <!-- Secondary Actions Toolbar (Uniform Square Icon Buttons to prevent overflow and text truncation) -->
+              <div class="flex items-center gap-1.5 shrink-0">
+                <!-- Secondary: Hotel Module Toggle Button with confirmation prompt -->
+                <Button
+                  size="sm"
+                  variant="outline"
+                  :class="[
+                    'h-8.5 w-8.5 p-0 rounded-xl cursor-pointer shrink-0 border transition relative',
+                    r.facilities && r.facilities.hotelRoomManagement
+                      ? 'border-indigo-500/40 text-indigo-600 dark:text-indigo-400 bg-indigo-500/10 hover:bg-indigo-500/20 ring-1 ring-indigo-500/20'
+                      : 'border-border text-muted-foreground hover:text-foreground hover:bg-muted'
+                  ]"
+                  @click="promptHotelToggle(r)"
+                  :title="r.facilities && r.facilities.hotelRoomManagement ? 'Hotel Module: Enabled (Click to toggle)' : 'Hotel Module: Disabled (Click to toggle)'"
+                >
+                  <BedDouble class="h-3.5 w-3.5" />
+                  <span v-if="r.facilities && r.facilities.hotelRoomManagement" class="absolute -top-1 -right-1 h-2 w-2 rounded-full bg-indigo-500 border border-card" />
+                </Button>
 
-              <!-- Secondary: Activate / Deactivate Toggle -->
-              <button
-                @click="promptStatusToggle(r)"
-                :class="[
-                  'h-8.5 px-2.5 rounded-xl border text-xs font-semibold transition flex items-center gap-1 cursor-pointer shrink-0',
-                  (r.status || (r.isActive !== false ? 'ACTIVE' : 'INACTIVE')).toUpperCase() === 'ACTIVE'
-                    ? 'border-rose-500/25 text-rose-600 dark:text-rose-400 bg-rose-500/5 hover:bg-rose-500/15'
-                    : 'border-emerald-500/25 text-emerald-600 dark:text-emerald-400 bg-emerald-500/5 hover:bg-emerald-500/15'
-                ]"
-                :title="(r.status || (r.isActive !== false ? 'ACTIVE' : 'INACTIVE')).toUpperCase() === 'ACTIVE' ? 'Deactivate Venue' : 'Activate Venue'"
-              >
-                <Power class="h-3.5 w-3.5" />
-                <span class="hidden sm:inline">{{ (r.status || (r.isActive !== false ? 'ACTIVE' : 'INACTIVE')).toUpperCase() === 'ACTIVE' ? 'Deactivate' : 'Activate' }}</span>
-              </button>
+                <!-- Secondary: WhatsApp Business API Config -->
+                <Button
+                  size="sm"
+                  variant="outline"
+                  class="h-8.5 w-8.5 p-0 rounded-xl hover:bg-emerald-500/10 cursor-pointer shrink-0 border-emerald-500/30 text-emerald-600 dark:text-emerald-400"
+                  @click="openWhatsAppConfigDialog(r)"
+                  title="Configure Meta WhatsApp Cloud API for this branch"
+                >
+                  <MessageCircle class="h-3.5 w-3.5" />
+                </Button>
+
+                <!-- Secondary: Edit Settings -->
+                <Button
+                  size="sm"
+                  variant="outline"
+                  class="h-8.5 w-8.5 p-0 rounded-xl hover:bg-muted cursor-pointer shrink-0 border-border text-muted-foreground hover:text-foreground"
+                  @click="openEditDialog(r)"
+                  title="Edit Restaurant Details"
+                >
+                  <Edit3 class="h-3.5 w-3.5" />
+                </Button>
+
+                <!-- Secondary: Activate / Deactivate Toggle (Uniform icon button) -->
+                <Button
+                  size="sm"
+                  variant="outline"
+                  :class="[
+                    'h-8.5 w-8.5 p-0 rounded-xl border transition cursor-pointer shrink-0',
+                    (r.status || (r.isActive !== false ? 'ACTIVE' : 'INACTIVE')).toUpperCase() === 'ACTIVE'
+                      ? 'border-rose-500/25 text-rose-600 dark:text-rose-400 bg-rose-500/5 hover:bg-rose-500/15'
+                      : 'border-emerald-500/25 text-emerald-600 dark:text-emerald-400 bg-emerald-500/5 hover:bg-emerald-500/15'
+                  ]"
+                  @click="promptStatusToggle(r)"
+                  :title="(r.status || (r.isActive !== false ? 'ACTIVE' : 'INACTIVE')).toUpperCase() === 'ACTIVE' ? 'Deactivate Venue' : 'Activate Venue'"
+                >
+                  <Power class="h-3.5 w-3.5" />
+                </Button>
+              </div>
             </div>
           </div>
         </div>
@@ -473,6 +662,27 @@ async function handleSave() {
             <Input v-model="formState.description" placeholder="Optional notes regarding this branch..." class="h-9 text-xs rounded-xl" />
           </div>
 
+          <!-- Facility Modules Configuration -->
+          <div class="rounded-xl border border-border p-3.5 bg-muted/20 space-y-2">
+            <span class="text-xs font-bold text-foreground block">Optional Facilities & Modules</span>
+            <label class="flex items-center justify-between p-2 rounded-lg bg-card border border-border/60 cursor-pointer hover:border-indigo-500/40 transition">
+              <div class="flex items-center gap-2.5">
+                <div class="h-7 w-7 rounded-lg bg-indigo-500/15 text-indigo-600 dark:text-indigo-400 flex items-center justify-center shrink-0">
+                  <BedDouble class="h-4 w-4" />
+                </div>
+                <div>
+                  <p class="text-xs font-bold text-foreground leading-tight">Hotel Room Management</p>
+                  <p class="text-[11px] text-muted-foreground">Enables rooms, reservations, check-ins, housekeeping, and hotel invoicing.</p>
+                </div>
+              </div>
+              <input
+                type="checkbox"
+                v-model="formState.facilities.hotelRoomManagement"
+                class="h-4 w-4 accent-indigo-600 rounded cursor-pointer shrink-0"
+              />
+            </label>
+          </div>
+
           <DialogFooter class="gap-2 sm:gap-0 pt-2">
             <Button type="button" variant="outline" class="h-9 text-xs rounded-xl" @click="isDialogOpen = false">
               Cancel
@@ -516,5 +726,221 @@ async function handleSave() {
         </AlertDialogFooter>
       </AlertDialogContent>
     </AlertDialog>
+
+    <!-- Alert Dialog: Hotel Facility Toggle Confirmation -->
+    <AlertDialog :open="hotelToggleConfirm.isOpen" @update:open="hotelToggleConfirm.isOpen = $event">
+      <AlertDialogContent class="rounded-3xl border border-border">
+        <AlertDialogHeader>
+          <AlertDialogTitle class="flex items-center gap-2 text-base font-bold">
+            <BedDouble :class="hotelToggleConfirm.enable ? 'h-5 w-5 text-indigo-600 dark:text-indigo-400' : 'h-5 w-5 text-amber-500'" />
+            {{ hotelToggleConfirm.enable ? 'Enable Hotel Room Management?' : 'Disable Hotel Room Management?' }}
+          </AlertDialogTitle>
+          <AlertDialogDescription class="text-xs text-muted-foreground leading-relaxed pt-1.5 space-y-2">
+            <template v-if="hotelToggleConfirm.enable">
+              <p>
+                You are enabling the optional <strong>Hotel Room Management</strong> module for <strong>{{ hotelToggleConfirm.target?.name }}</strong>.
+              </p>
+              <ul class="list-disc pl-4 text-[11px] text-foreground/80 space-y-1">
+                <li>Restaurant Admin gains the full Hotel Management portal (Rooms, Categories, Housekeeping, Reports).</li>
+                <li>Cashier gains the visual POS Room Grid (Availability, Check-In, Check-Out, and Invoices).</li>
+                <li>Default room categories (Standard, Deluxe, Premium, Suite) will be seeded automatically.</li>
+              </ul>
+            </template>
+            <template v-else>
+              <p>
+                Are you sure you want to disable <strong>Hotel Room Management</strong> for <strong>{{ hotelToggleConfirm.target?.name }}</strong>?
+              </p>
+              <p class="text-[11px] text-emerald-600 dark:text-emerald-400 font-medium">
+                ✓ All existing rooms, past bookings, guest details, and invoices will remain <strong>permanently preserved</strong> in the database.
+              </p>
+              <p class="text-[11px]">
+                The Hotel navigation tabs and POS grid will simply be hidden from the restaurant's staff until re-enabled.
+              </p>
+            </template>
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter class="pt-2">
+          <AlertDialogCancel class="h-8.5 text-xs rounded-xl">Cancel</AlertDialogCancel>
+          <AlertDialogAction
+            @click="confirmHotelToggle"
+            :class="hotelToggleConfirm.enable ? 'bg-indigo-600 hover:bg-indigo-700 text-white text-xs h-8.5 rounded-xl font-bold' : 'bg-destructive text-destructive-foreground hover:bg-destructive/90 text-xs h-8.5 rounded-xl font-bold'"
+          >
+            {{ hotelToggleConfirm.enable ? 'Yes, Enable Hotel Module' : 'Yes, Disable Module' }}
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+    <!-- Modal: WhatsApp Multi-Tenant Branch Configuration -->
+    <Dialog :open="isWhatsAppDialogOpen" @update:open="isWhatsAppDialogOpen = $event">
+      <DialogContent class="sm:max-w-lg max-h-[90vh] overflow-y-auto rounded-3xl border border-border p-0">
+        <DialogHeader class="p-5 border-b border-border bg-card">
+          <div class="flex items-center justify-between">
+            <DialogTitle class="font-display text-base sm:text-lg font-bold flex items-center gap-2">
+              <div class="h-8 w-8 rounded-xl bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 flex items-center justify-center">
+                <MessageCircle class="h-4.5 w-4.5" />
+              </div>
+              <span>WhatsApp Cloud API — {{ selectedWhatsAppRestaurant?.name }}</span>
+            </DialogTitle>
+          </div>
+          <DialogDescription class="text-xs text-muted-foreground mt-1">
+            Configure official Meta WhatsApp Business credentials for automatic customer bill delivery.
+          </DialogDescription>
+        </DialogHeader>
+
+        <div v-if="whatsAppConfigLoading" class="p-12 text-center text-muted-foreground">
+          <RefreshCw class="h-6 w-6 animate-spin mx-auto mb-2 text-primary" />
+          <p class="text-xs font-semibold">Loading WhatsApp settings...</p>
+        </div>
+
+        <form v-else @submit.prevent="saveWhatsAppConfig" class="p-5 space-y-4">
+          <!-- Toggle active / enabled -->
+          <div class="p-3 rounded-2xl bg-muted/30 border border-border flex items-center justify-between">
+            <div>
+              <label class="text-xs font-bold text-foreground">Enable Automatic WhatsApp Delivery</label>
+              <p class="text-[11px] text-muted-foreground">Automatically trigger PDF invoice to customer on payment completion</p>
+            </div>
+            <input
+              type="checkbox"
+              v-model="whatsAppForm.isEnabled"
+              class="h-4 w-4 rounded text-emerald-600 focus:ring-emerald-500 accent-emerald-600 cursor-pointer"
+            />
+          </div>
+
+          <!-- Operational Status Mode -->
+          <div class="space-y-1.5">
+            <label class="text-xs font-bold text-foreground">Operational Mode</label>
+            <div class="grid grid-cols-3 gap-2">
+              <button
+                type="button"
+                @click="whatsAppForm.status = 'ACTIVE'"
+                :class="['py-2 px-3 rounded-xl border text-xs font-bold transition cursor-pointer', whatsAppForm.status === 'ACTIVE' ? 'bg-emerald-500/15 border-emerald-500/40 text-emerald-600 dark:text-emerald-400' : 'bg-background border-border text-muted-foreground']"
+              >
+                ✓ Active
+              </button>
+              <button
+                type="button"
+                @click="whatsAppForm.status = 'TEST_MODE'"
+                :class="['py-2 px-3 rounded-xl border text-xs font-bold transition cursor-pointer', whatsAppForm.status === 'TEST_MODE' ? 'bg-amber-500/15 border-amber-500/40 text-amber-600 dark:text-amber-400' : 'bg-background border-border text-muted-foreground']"
+              >
+                ⚡ Test Mode
+              </button>
+              <button
+                type="button"
+                @click="whatsAppForm.status = 'INACTIVE'"
+                :class="['py-2 px-3 rounded-xl border text-xs font-bold transition cursor-pointer', whatsAppForm.status === 'INACTIVE' ? 'bg-destructive/15 border-destructive/40 text-destructive' : 'bg-background border-border text-muted-foreground']"
+              >
+                ✕ Inactive
+              </button>
+            </div>
+            <p v-if="whatsAppForm.status === 'TEST_MODE'" class="text-[11px] text-amber-500 font-medium pt-0.5">
+              * Test Mode simulates delivery responses without calling Meta servers or consuming account credits.
+            </p>
+          </div>
+
+          <!-- Phone Number ID -->
+          <div class="space-y-1.5">
+            <label class="text-xs font-bold text-foreground">Phone Number ID (Meta Graph)</label>
+            <Input
+              v-model="whatsAppForm.phoneNumberId"
+              placeholder="e.g. 104829104810294"
+              class="h-9 text-xs"
+            />
+            <p class="text-[10px] text-muted-foreground">Found under WhatsApp &gt; API Setup in Meta App Dashboard</p>
+          </div>
+
+          <!-- Business Account ID -->
+          <div class="space-y-1.5">
+            <label class="text-xs font-bold text-foreground">WhatsApp Business Account ID (WABA ID)</label>
+            <Input
+              v-model="whatsAppForm.businessAccountId"
+              placeholder="e.g. 109283748291024"
+              class="h-9 text-xs"
+            />
+          </div>
+
+          <!-- Access Token -->
+          <div class="space-y-1.5">
+            <div class="flex items-center justify-between">
+              <label class="text-xs font-bold text-foreground">Permanent System User Access Token</label>
+              <span v-if="whatsAppForm.isAccessTokenConfigured" class="text-[10px] text-emerald-600 dark:text-emerald-400 font-bold">
+                ✓ Encrypted &amp; Configured
+              </span>
+            </div>
+            <Input
+              v-model="whatsAppForm.accessToken"
+              type="password"
+              placeholder="Enter new token to replace existing encrypted token"
+              class="h-9 text-xs"
+            />
+            <p class="text-[10px] text-muted-foreground">Encrypted using AES-256-GCM. Never exposed in API responses or logs.</p>
+          </div>
+
+          <!-- Template Name & Language -->
+          <div class="grid grid-cols-2 gap-3">
+            <div class="space-y-1.5">
+              <label class="text-xs font-bold text-foreground">Template Name</label>
+              <Input
+                v-model="whatsAppForm.templateName"
+                placeholder="dawatdesk_invoice_v1"
+                class="h-9 text-xs"
+              />
+            </div>
+            <div class="space-y-1.5">
+              <label class="text-xs font-bold text-foreground">Language Code</label>
+              <Input
+                v-model="whatsAppForm.templateLanguage"
+                placeholder="en"
+                class="h-9 text-xs"
+              />
+            </div>
+          </div>
+
+          <!-- Test Result Banner -->
+          <div v-if="whatsAppTestResult" :class="['p-3 rounded-2xl border text-xs flex items-start gap-2.5', whatsAppTestResult.isConfigured ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-700 dark:text-emerald-300' : 'bg-amber-500/10 border-amber-500/30 text-amber-700 dark:text-amber-300']">
+            <CheckCircle2 v-if="whatsAppTestResult.isConfigured" class="h-4 w-4 shrink-0 mt-0.5" />
+            <AlertCircle v-else class="h-4 w-4 shrink-0 mt-0.5" />
+            <div>
+              <div class="font-bold">{{ whatsAppTestResult.message }}</div>
+              <div class="text-[11px] opacity-80 mt-0.5">Source: {{ whatsAppTestResult.source }} · Template: {{ whatsAppTestResult.templateName }}</div>
+            </div>
+          </div>
+
+          <!-- Dialog Actions -->
+          <div class="pt-3 border-t border-border flex items-center justify-between gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              class="h-9 text-xs font-bold cursor-pointer"
+              :disabled="whatsAppTesting"
+              @click="testWhatsAppConfig"
+            >
+              <RefreshCw :class="['h-3.5 w-3.5 mr-1.5', whatsAppTesting ? 'animate-spin' : '']" />
+              {{ whatsAppTesting ? 'Testing...' : 'Test Connection' }}
+            </Button>
+
+            <div class="flex items-center gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                class="h-9 text-xs cursor-pointer"
+                @click="isWhatsAppDialogOpen = false"
+              >
+                Cancel
+              </Button>
+              <Button
+                type="submit"
+                size="sm"
+                :disabled="whatsAppConfigSaving"
+                class="gradient-primary text-primary-foreground font-bold h-9 px-4 text-xs cursor-pointer shadow-xs"
+              >
+                {{ whatsAppConfigSaving ? 'Saving...' : 'Save Settings' }}
+              </Button>
+            </div>
+          </div>
+        </form>
+      </DialogContent>
+    </Dialog>
   </RoleLayout>
 </template>
