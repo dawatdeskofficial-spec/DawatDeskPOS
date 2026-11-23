@@ -119,14 +119,18 @@ class AuthService {
         const currentFailed = (user.failedLoginAttempts || 0) + 1;
         if (currentFailed >= 5) {
           // Lock account for 15 minutes after 5 consecutive failures
-          user.lockUntil = new Date(Date.now() + 15 * 60 * 1000);
-          user.failedLoginAttempts = 0;
-          await user.save();
+          const lockTime = new Date(Date.now() + 15 * 60 * 1000);
+          await User.updateOne(
+            { _id: user._id },
+            { $set: { lockUntil: lockTime, failedLoginAttempts: 0 } }
+          );
           logger.warn(`Security alert: Account ${user.email} locked for 15 minutes due to 5 consecutive failed login attempts.`);
           throw new Error('Account locked for 15 minutes due to 5 consecutive failed login attempts.');
         } else {
-          user.failedLoginAttempts = currentFailed;
-          await user.save();
+          await User.updateOne(
+            { _id: user._id },
+            { $set: { failedLoginAttempts: currentFailed } }
+          );
           const remaining = 5 - currentFailed;
           throw new Error(`Invalid credentials. ${remaining} attempt(s) remaining before account lockout.`);
         }
@@ -134,14 +138,21 @@ class AuthService {
 
       // Successful password: reset failed attempts counter and release lock if any
       if ((user.failedLoginAttempts || 0) > 0 || user.lockUntil) {
-        user.failedLoginAttempts = 0;
-        user.lockUntil = null;
-        await user.save();
+        await User.updateOne(
+          { _id: user._id },
+          { $set: { failedLoginAttempts: 0, lockUntil: null } }
+        );
       }
 
-      const restObj = user.restaurantId || null;
-      if (restObj && restObj._id) {
-        restObj.id = restObj._id.toString();
+      let restObj = null;
+      if (user.restaurantId) {
+        const rawRest = typeof user.restaurantId.toObject === 'function'
+          ? user.restaurantId.toObject()
+          : { ...user.restaurantId };
+        restObj = {
+          ...rawRest,
+          id: rawRest._id ? rawRest._id.toString() : rawRest.id,
+        };
       }
 
       // Generate token with fast-auth claims
@@ -339,9 +350,15 @@ class AuthService {
         .populate('restaurantId', 'name location city status isActive maxTables gstPercentage facilities')
         .lean();
 
-      const restObj = user.restaurantId || null;
-      if (restObj && restObj._id) {
-        restObj.id = restObj._id.toString();
+      let restObj = null;
+      if (user.restaurantId) {
+        const rawRest = typeof user.restaurantId.toObject === 'function'
+          ? user.restaurantId.toObject()
+          : { ...user.restaurantId };
+        restObj = {
+          ...rawRest,
+          id: rawRest._id ? rawRest._id.toString() : rawRest.id,
+        };
       }
 
       const token = this.generateToken(
@@ -439,9 +456,15 @@ class AuthService {
         throw new Error('User account is inactive');
       }
 
-      const restObj = user.restaurantId || null;
-      if (restObj && restObj._id) {
-        restObj.id = restObj._id.toString();
+      let restObj = null;
+      if (user.restaurantId) {
+        const rawRest = typeof user.restaurantId.toObject === 'function'
+          ? user.restaurantId.toObject()
+          : { ...user.restaurantId };
+        restObj = {
+          ...rawRest,
+          id: rawRest._id ? rawRest._id.toString() : rawRest.id,
+        };
       }
 
       user.id = user._id ? user._id.toString() : userId.toString();
