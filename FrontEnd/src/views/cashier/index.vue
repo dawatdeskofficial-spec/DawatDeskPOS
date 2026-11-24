@@ -31,8 +31,6 @@ import DialogContent from '@/components/ui/DialogContent.vue'
 import DialogHeader from '@/components/ui/DialogHeader.vue'
 import DialogTitle from '@/components/ui/DialogTitle.vue'
 import DialogDescription from '@/components/ui/DialogDescription.vue'
-import jsPDF from 'jspdf'
-import autoTable from 'jspdf-autotable'
 
 interface EditableItem {
   id: string
@@ -992,8 +990,12 @@ async function handleCompletePayment() {
 }
 
 // ── PDF Receipt ───────────────────────────────────────────────────────────────
-function downloadPDF(orderOrPayment: any, isPast = false) {
+async function downloadPDF(orderOrPayment: any, isPast = false) {
   if (!orderOrPayment) { toast.error('No receipt details found'); return }
+  const [{ default: jsPDF }, { default: autoTable }] = await Promise.all([
+    import('jspdf'),
+    import('jspdf-autotable')
+  ]);
   const doc      = new jsPDF()
   const restName = restaurant.value?.name || 'Restaurant'
   let orderObj   = orderOrPayment

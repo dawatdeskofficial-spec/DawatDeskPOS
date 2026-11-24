@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, watch } from 'vue'
+import apexchart from 'vue3-apexcharts'
 import {
   BarChart3, Calendar, CheckCircle2, ChevronRight, Clock, Clock3,
   CreditCard, DollarSign, Download, FileSpreadsheet, FileText,
@@ -551,7 +552,7 @@ const dynamicTrendData = computed(() => {
 })
 
 // Charts Options & Series
-const salesTrendOptions = computed(() => {
+const salesTrendOptions = computed<any>(() => {
   const maxRevenue = Math.max(...(dynamicTrendData.value.revenues || [0]), 0)
   const isZeroAll = maxRevenue === 0
   const totalCategories = dynamicTrendData.value.categories.length
@@ -675,7 +676,7 @@ const salesTrendSeries = computed(() => [{
   data: dynamicTrendData.value.revenues
 }])
 
-const paymentDonutOptions = computed(() => {
+const paymentDonutOptions = computed<any>(() => {
   return {
     chart: {
       type: 'donut',
@@ -754,7 +755,7 @@ const paymentDonutSeries = computed(() => {
 })
 
 // Category Bar Chart Options
-const categoryBarOptions = computed(() => ({
+const categoryBarOptions = computed<any>(() => ({
   chart: {
     type: 'bar',
     toolbar: { show: false },

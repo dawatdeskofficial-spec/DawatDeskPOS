@@ -324,7 +324,11 @@ class OrderService {
   // Add item to order
   async addItemToOrder(orderId, menuItemId, quantity, specialInstructions = '') {
     try {
-      const order = await Order.findById(orderId);
+      const [order, menuItem] = await Promise.all([
+        Order.findById(orderId),
+        MenuItem.findById(menuItemId),
+      ]);
+
       if (!order) {
         throw new Error('Order not found');
       }
@@ -333,8 +337,6 @@ class OrderService {
         throw new Error('Completed orders cannot be changed');
       }
 
-      // Check if menu item exists and get price
-      const menuItem = await MenuItem.findById(menuItemId);
       if (!menuItem) {
         throw new Error('Menu item not found');
       }

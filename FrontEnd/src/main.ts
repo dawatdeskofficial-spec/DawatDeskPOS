@@ -1,11 +1,10 @@
 import { createApp } from 'vue'
 import { createPinia } from 'pinia'
-import VueApexCharts from 'vue3-apexcharts'
 import App from './App.vue'
 import router from './router'
 import './style.css'
 
-// Proactively unregister any legacy service workers and clear browser cache storage to prevent blank page issues
+// Proactively unregister any legacy service workers to prevent blank page issues
 if (typeof window !== 'undefined') {
   if ('serviceWorker' in navigator) {
     navigator.serviceWorker.getRegistrations().then((registrations) => {
@@ -15,14 +14,6 @@ if (typeof window !== 'undefined') {
             console.log('[App] Unregistered stale service worker');
           }
         });
-      }
-    }).catch(() => {});
-  }
-
-  if ('caches' in window) {
-    caches.keys().then((keys) => {
-      for (const key of keys) {
-        caches.delete(key);
       }
     }).catch(() => {});
   }
@@ -36,6 +27,5 @@ app.config.errorHandler = (err, instance, info) => {
 
 app.use(createPinia())
 app.use(router)
-app.use(VueApexCharts)
 
 app.mount('#app')

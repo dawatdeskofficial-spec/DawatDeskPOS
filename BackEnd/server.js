@@ -5,6 +5,7 @@ const morgan = require('morgan');
 
 const connectDB = require('./config/database');
 const errorHandler = require('./middlewares/errorHandler');
+const performanceMonitor = require('./middlewares/performanceMonitor');
 const logger = require('./utils/logger');
 
 // Import routes
@@ -55,6 +56,9 @@ app.use(
     },
   })
 );
+
+// Performance monitoring middleware
+app.use(performanceMonitor);
 
 
 // Health check routes

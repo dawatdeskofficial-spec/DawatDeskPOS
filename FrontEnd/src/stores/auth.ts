@@ -90,7 +90,7 @@ export const useAuthStore = defineStore('auth', () => {
 
     try {
       const timeoutPromise = new Promise((_, reject) => 
-        setTimeout(() => reject(new Error("Auth verification timeout")), 3000)
+        setTimeout(() => reject(new Error("Auth verification timeout")), 8000)
       );
       const response = await Promise.race([getCurrentUser(), timeoutPromise]) as any;
       const userData = response.data as BackendUser;

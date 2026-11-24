@@ -32,3 +32,56 @@ export function setSyncing(syncing: boolean) {
   }
   connectionState.value = syncing ? 'SYNCING' : 'ONLINE'
 }
+
+export const isPageVisible = ref(typeof document !== 'undefined' ? !document.hidden : true)
+
+if (typeof document !== 'undefined') {
+  document.addEventListener('visibilitychange', () => {
+    isPageVisible.value = !document.hidden
+  })
+}
+
+/**
+ * Creates an interval timer that automatically pauses when the browser tab is hidden/minimized
+ * and resumes immediately with an immediate refresh call when the tab is focused.
+ */
+export function createVisibleInterval(callback: () => void, ms: number) {
+  let intervalId: any = null
+
+  const start = () => {
+    if (!intervalId && (typeof document === 'undefined' || !document.hidden)) {
+      intervalId = setInterval(callback, ms)
+    }
+  }
+
+  const stop = () => {
+    if (intervalId) {
+      clearInterval(intervalId)
+      intervalId = null
+    }
+  }
+
+  if (typeof document !== 'undefined') {
+    const onVisibilityChange = () => {
+      if (document.hidden) {
+        stop()
+      } else {
+        try {
+          callback()
+        } catch {}
+        start()
+      }
+    }
+
+    document.addEventListener('visibilitychange', onVisibilityChange)
+    start()
+
+    return () => {
+      stop()
+      document.removeEventListener('visibilitychange', onVisibilityChange)
+    }
+  }
+
+  start()
+  return stop
+}

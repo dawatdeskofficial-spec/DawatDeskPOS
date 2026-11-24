@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted } from 'vue'
+import apexchart from 'vue3-apexcharts'
 import {
   Activity, BellRing, ChefHat, Clock3, CookingPot, CreditCard, DollarSign,
   Plus, Receipt, ShoppingBag, Table2, Users, UtensilsCrossed, Wallet,
@@ -217,7 +218,7 @@ const hourlySales = computed(() => {
   return sales
 })
 
-const areaOptions = computed(() => {
+const areaOptions = computed<any>(() => {
   const maxSale = Math.max(...hourlySales.value.map(d => d.sales), 0)
   const isZeroAll = maxSale === 0
 
@@ -319,7 +320,7 @@ const paymentMix = computed(() => {
   ]
 })
 
-const pieOptions = computed(() => ({
+const pieOptions = computed<any>(() => ({
   chart: {
     type: 'donut',
     toolbar: { show: false },
@@ -371,7 +372,7 @@ const orderSourceMix = computed(() => {
   ]
 })
 
-const barOptions = computed(() => ({
+const barOptions = computed<any>(() => ({
   chart: {
     type: 'bar',
     toolbar: { show: false },

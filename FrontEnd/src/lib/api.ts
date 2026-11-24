@@ -122,7 +122,7 @@ const parseResponse = async (response: Response, silent = false) => {
 };
 
 // Smart Namespace-based Frontend API Cache & In-flight Request Deduplication
-export type CacheNamespace = 'restaurant' | 'menu' | 'category' | 'user' | 'settings' | 'general';
+export type CacheNamespace = 'restaurant' | 'menu' | 'category' | 'user' | 'settings' | 'general' | 'hotel';
 
 interface CacheEntry {
   data: any;
@@ -865,9 +865,7 @@ export const toggleHotelFacility = async (restaurantId: string, isEnabled: boole
 
 export const getHotelFacilityStatus = async (restaurantId?: string) => {
   const url = restaurantId ? `/api/hotel/facility-status/${restaurantId}` : `/api/hotel/facility-status`;
-  return authFetch(url, {
-    method: "GET",
-  });
+  return cachedAuthFetch(url, { method: "GET" }, 300, 'hotel', true);
 };
 
 export const getHotelRoomTypes = async (restaurantId?: string, activeOnly = false) => {

@@ -34,10 +34,13 @@ const connectDB = async () => {
     }
 
     if (!cached.promise) {
+      const isServerless = Boolean(process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME || process.env.LAMBDA_TASK_ROOT);
+      
       const opts = {
         family: 4,
         maxPoolSize: 10,
-        minPoolSize: 1,
+        minPoolSize: isServerless ? 0 : 1,
+        autoIndex: process.env.NODE_ENV !== 'production' && !isServerless,
         serverSelectionTimeoutMS: 5000,
         socketTimeoutMS: 20000,
         connectTimeoutMS: 10000,

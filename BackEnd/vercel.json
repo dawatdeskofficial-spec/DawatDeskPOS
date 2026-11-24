@@ -1,5 +1,12 @@
 {
   "version": 2,
+  "regions": ["bom1"],
+  "functions": {
+    "server.js": {
+      "memory": 1024,
+      "maxDuration": 15
+    }
+  },
   "builds": [
     {
       "src": "server.js",

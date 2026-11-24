@@ -32,6 +32,7 @@ import AppHeader from '@/components/mobile/AppHeader.vue'
 import BottomNavigation from '@/components/mobile/BottomNavigation.vue'
 import SideDrawer from '@/components/mobile/SideDrawer.vue'
 import DawatDeskLogo from '@/components/DawatDeskLogo.vue'
+import { createVisibleInterval } from '@/lib/network'
 
 import { restaurantNav, adminNav, cashierNav, hotelAdminNavItem, hotelCashierNavItem } from '@/lib/nav'
 
@@ -78,6 +79,12 @@ const readyOrders = ref<any[]>([])
 const seenReadyIds = ref<Set<string>>(new Set())
 const hasNewNotif = ref(false)
 let notifInterval: any
+
+function stopNotifPolling() {
+  if (typeof notifInterval === 'function') notifInterval()
+  else if (notifInterval) clearInterval(notifInterval)
+  notifInterval = null
+}
 
 const isInspecting = computed(() => auth.user?.role === 'main_admin' && Boolean(auth.inspectedRestaurantId))
 
@@ -141,7 +148,7 @@ async function pollReadyOrders() {
   if (!restaurantId) return
 
   try {
-    const res = await getOrders(restaurantId, 1, 100, undefined, true)
+    const res = await getOrders(restaurantId, 1, 20, 'READY', true)
     const orders: any[] = res.data || []
     const fresh = orders.filter((o: any) => (o.status || '').toUpperCase() === 'READY')
 
@@ -258,7 +265,8 @@ onMounted(() => {
   // Start notification polling for waiters so the top bar bell icon & drawer stay updated
   if (isWaiter.value) {
     pollReadyOrders()
-    notifInterval = setInterval(pollReadyOrders, 4000)
+    stopNotifPolling()
+    notifInterval = createVisibleInterval(pollReadyOrders, 5000)
   }
 
   // Close drawer on navigation
@@ -268,7 +276,7 @@ onMounted(() => {
 })
 
 onUnmounted(() => {
-  clearInterval(notifInterval)
+  stopNotifPolling()
 })
 
 watch(dark, (newDark) => {
@@ -294,10 +302,10 @@ watch(() => [auth.user, auth.inspectedRestaurantId], async () => {
 
 // Start polling when role becomes waiter
 watch(isWaiter, (val) => {
-  clearInterval(notifInterval)
+  stopNotifPolling()
   if (val && route.path !== '/waiter') {
     pollReadyOrders()
-    notifInterval = setInterval(pollReadyOrders, 5000)
+    notifInterval = createVisibleInterval(pollReadyOrders, 5000)
   }
 })
 
@@ -310,7 +318,7 @@ function handleLogout() {
 
 async function executeLogout() {
   showLogoutConfirm.value = false
-  clearInterval(notifInterval)
+  stopNotifPolling()
   await auth.signOut()
   router.push('/login')
 }

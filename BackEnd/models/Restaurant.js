@@ -75,4 +75,8 @@ const restaurantSchema = new mongoose.Schema(
   }
 );
 
+// Indexes for query performance
+restaurantSchema.index({ status: 1 });
+restaurantSchema.index({ status: 1, createdAt: -1 });
+
 module.exports = mongoose.model('Restaurant', restaurantSchema);
