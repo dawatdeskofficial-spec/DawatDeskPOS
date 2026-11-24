@@ -93,7 +93,7 @@ class AuthService {
 
       // Find user with password and restaurant projection
       const user = await User.findOne({ email: cleanEmail })
-        .select('+password +failedLoginAttempts +lockUntil')
+        .select('+password +failedLoginAttempts +lockUntil +isTemporaryPassword +tempPasswordExpires')
         .populate('restaurantId', 'name location city status isActive maxTables gstPercentage facilities');
 
       // Timing-attack mitigation: run dummy bcrypt compare so response duration is uniform
@@ -142,6 +142,28 @@ class AuthService {
           { _id: user._id },
           { $set: { failedLoginAttempts: 0, lockUntil: null } }
         );
+      }
+
+      // Check if user logged in with a temporary password from Forgot Password flow
+      if (user.isTemporaryPassword) {
+        if (user.tempPasswordExpires && user.tempPasswordExpires < new Date()) {
+          throw new Error('Your temporary password has expired (valid for 10 minutes). Please request a new one.');
+        }
+
+        // Generate a scoped reset token (valid for 15 minutes) specifically for setting the permanent password
+        const resetToken = jwt.sign(
+          { userId: user._id.toString(), email: user.email, purpose: 'temp_password_reset' },
+          process.env.JWT_SECRET,
+          { expiresIn: '15m' }
+        );
+
+        logger.info(`User authenticated with temporary password: ${user.email}. Password update required.`);
+        return {
+          requiresPasswordReset: true,
+          email: user.email,
+          resetToken,
+          message: 'Temporary password accepted. Please create your new permanent password to continue.',
+        };
       }
 
       let restObj = null;
@@ -475,6 +497,126 @@ class AuthService {
       return { ...user };
     } catch (error) {
       logger.error(`Get user error: ${error.message}`);
+      throw error;
+    }
+  }
+
+  // Request a temporary random password (Forgot Password flow)
+  async requestForgotPassword(email) {
+    try {
+      const cleanEmail = (email || '').toLowerCase().trim();
+      if (!cleanEmail) {
+        throw new Error('Email address is required');
+      }
+
+      const user = await User.findOne({ email: cleanEmail }).select('+password');
+      if (!user) {
+        throw new Error('No account found with this email address.');
+      }
+
+      if (!user.isActive) {
+        throw new Error('This account is inactive. Please contact your restaurant administrator.');
+      }
+
+      // Generate secure 9-character random temporary password
+      const tempPassword = emailService.generateTemporaryPassword();
+      const salt = await bcrypt.genSalt(10);
+      const hashedTempPassword = await bcrypt.hash(tempPassword, salt);
+      const expiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
+
+      // Store temporary password hash on user with 10-minute expiry
+      await User.updateOne(
+        { _id: user._id },
+        {
+          $set: {
+            password: hashedTempPassword,
+            isTemporaryPassword: true,
+            tempPasswordExpires: expiresAt,
+            failedLoginAttempts: 0,
+            lockUntil: null,
+          },
+        }
+      );
+
+      this.invalidateUserCache(user._id);
+
+      // Send email containing temporary password
+      const emailResult = await emailService.sendTemporaryPasswordEmail(user.email, tempPassword, user.name);
+
+      logger.info(`Temporary password generated and dispatched to: ${user.email}`);
+
+      return {
+        success: true,
+        message: 'A one-time temporary password has been sent to your email. It is valid for 10 minutes.',
+        email: cleanEmail,
+        delivered: emailResult.delivered,
+      };
+    } catch (error) {
+      logger.error(`Forgot password error: ${error.message}`);
+      throw error;
+    }
+  }
+
+  // Reset password using the temporary password verification token
+  async resetPasswordWithTemp(email, resetToken, newPassword) {
+    try {
+      const cleanEmail = (email || '').toLowerCase().trim();
+      if (!cleanEmail || !resetToken || !newPassword) {
+        throw new Error('Email, verification token, and new password are required.');
+      }
+
+      if (newPassword.length < 6) {
+        throw new Error('New password must be at least 6 characters long.');
+      }
+
+      // Verify reset token
+      let decoded;
+      try {
+        decoded = jwt.verify(resetToken, process.env.JWT_SECRET);
+      } catch (err) {
+        throw new Error('Password reset session has expired or is invalid. Please request a new temporary password.');
+      }
+
+      if (decoded.purpose !== 'temp_password_reset' || (decoded.email || '').toLowerCase() !== cleanEmail) {
+        throw new Error('Invalid reset token or authorization mismatch.');
+      }
+
+      const user = await User.findOne({ email: cleanEmail });
+      if (!user) {
+        throw new Error('User account not found.');
+      }
+
+      // Hash permanent new password
+      const salt = await bcrypt.genSalt(10);
+      const hashedPassword = await bcrypt.hash(newPassword, salt);
+
+      // Permanently clear temporary password flags and set new password
+      await User.updateOne(
+        { _id: user._id },
+        {
+          $set: {
+            password: hashedPassword,
+            isTemporaryPassword: false,
+            tempPasswordExpires: null,
+            failedLoginAttempts: 0,
+            lockUntil: null,
+          },
+        }
+      );
+
+      this.invalidateUserCache(user._id);
+
+      // Send confirmation email
+      await emailService.sendPasswordChangedEmail(user.email, user.name);
+
+      logger.info(`Password successfully updated via temporary password flow for: ${user.email}`);
+
+      return {
+        success: true,
+        message: 'Password updated successfully! Please log in with your new password.',
+      };
+    } catch (error) {
+      logger.error(`Reset password error: ${error.message}`);
       throw error;
     }
   }

@@ -129,6 +129,38 @@ class AuthController {
       return sendError(res, error.message, 401);
     }
   }
+
+  // Request temporary password for forgot password
+  async forgotPassword(req, res) {
+    try {
+      const { email } = req.body;
+      if (!email) {
+        return sendError(res, 'Email address is required', 400);
+      }
+
+      const result = await authService.requestForgotPassword(email);
+      return sendSuccess(res, result.message, result, 200);
+    } catch (error) {
+      logger.error(`Forgot password controller error: ${error.message}`);
+      return sendError(res, error.message, 400);
+    }
+  }
+
+  // Reset password using temporary password token
+  async resetPassword(req, res) {
+    try {
+      const { email, resetToken, newPassword } = req.body;
+      if (!email || !resetToken || !newPassword) {
+        return sendError(res, 'Email, reset token, and new password are required', 400);
+      }
+
+      const result = await authService.resetPasswordWithTemp(email, resetToken, newPassword);
+      return sendSuccess(res, result.message, result, 200);
+    } catch (error) {
+      logger.error(`Reset password controller error: ${error.message}`);
+      return sendError(res, error.message, 400);
+    }
+  }
 }
 
 module.exports = new AuthController();

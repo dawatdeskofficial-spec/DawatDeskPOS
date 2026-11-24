@@ -274,6 +274,20 @@ export const loginWithOtp = async (email: string, otp: string) => {
   });
 };
 
+export const forgotPassword = async (email: string) => {
+  return fetchJson("/api/auth/forgot-password", {
+    method: "POST",
+    body: JSON.stringify({ email }),
+  });
+};
+
+export const resetPasswordWithTemp = async (email: string, resetToken: string, newPassword: string) => {
+  return fetchJson("/api/auth/reset-password-temp", {
+    method: "POST",
+    body: JSON.stringify({ email, resetToken, newPassword }),
+  });
+};
+
 export const signupUser = async (name: string, email: string, password: string, role: AppRole) => {
   return fetchJson("/api/auth/signup", {
     method: "POST",

@@ -33,4 +33,14 @@ router.post('/login-otp', otpVerifyLimiter, (req, res) => {
   authController.loginWithOtp(req, res);
 });
 
+// Forgot password route: generates one-time temporary password valid for 10 minutes
+router.post('/forgot-password', authLimiter, (req, res) => {
+  authController.forgotPassword(req, res);
+});
+
+// Reset password route: user logs in with temporary password, then submits new permanent password
+router.post('/reset-password-temp', authLimiter, (req, res) => {
+  authController.resetPassword(req, res);
+});
+
 module.exports = router;

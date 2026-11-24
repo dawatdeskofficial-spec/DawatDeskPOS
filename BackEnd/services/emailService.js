@@ -206,6 +206,176 @@ class EmailService {
       return { success: true, delivered: false, warning: err.message };
     }
   }
+
+  generateTemporaryPassword() {
+    const upper = 'ABCDEFGHJKLMNPQRSTUVWXYZ';
+    const lower = 'abcdefghijkmnpqrstuvwxyz';
+    const numbers = '23456789';
+    const symbols = '@#$!';
+    const all = upper + lower + numbers + symbols;
+
+    let pass = '';
+    pass += upper[Math.floor(Math.random() * upper.length)];
+    pass += lower[Math.floor(Math.random() * lower.length)];
+    pass += numbers[Math.floor(Math.random() * numbers.length)];
+    pass += symbols[Math.floor(Math.random() * symbols.length)];
+
+    for (let i = 0; i < 5; i++) {
+      pass += all[Math.floor(Math.random() * all.length)];
+    }
+
+    return pass.split('').sort(() => 0.5 - Math.random()).join('');
+  }
+
+  async sendTemporaryPasswordEmail(toEmail, tempPassword, userName = '') {
+    const cleanEmail = (toEmail || '').toLowerCase().trim();
+    const subject = 'DawatDesk - Your One-Time Temporary Login Password';
+    const greeting = userName ? `Hello ${userName},` : 'Hello,';
+
+    const htmlContent = `
+      <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; max-width: 580px; margin: 0 auto; padding: 28px; border: 1px solid #e2e8f0; border-radius: 16px; background-color: #ffffff; color: #1e293b; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);">
+        <div style="text-align: center; padding-bottom: 20px; border-bottom: 2px solid #fed7aa;">
+          <h1 style="margin: 0; font-size: 26px; font-weight: 800; color: #ea580c; letter-spacing: -0.5px;">DawatDesk POS</h1>
+          <p style="margin: 6px 0 0; font-size: 13px; color: #64748b; font-weight: 500;">Password Recovery & Account Access</p>
+        </div>
+
+        <div style="padding: 24px 0;">
+          <h2 style="font-size: 18px; color: #0f172a; margin: 0 0 10px;">${greeting}</h2>
+          <p style="font-size: 14px; line-height: 1.6; color: #475569; margin: 0 0 18px;">
+            We received a request to reset your DawatDesk password. Below is your <strong>one-time temporary password</strong> to access your account:
+          </p>
+
+          <div style="background: linear-gradient(135deg, #fff7ed 0%, #ffedd5 100%); border: 2px dashed #f97316; border-radius: 14px; padding: 22px; text-align: center; margin: 22px 0;">
+            <div style="font-size: 12px; font-weight: 700; color: #c2410c; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 8px;">
+              One-Time Temporary Password
+            </div>
+            <div style="font-family: 'Courier New', Courier, monospace; font-size: 28px; font-weight: 800; color: #ea580c; letter-spacing: 3px;">
+              ${tempPassword}
+            </div>
+            <div style="font-size: 12px; color: #9a3412; margin-top: 10px; font-weight: 600;">
+              ⏱️ Valid for 10 minutes only &bull; Single use
+            </div>
+          </div>
+
+          <div style="background-color: #f8fafc; border-left: 4px solid #ea580c; padding: 14px 16px; border-radius: 6px; margin: 20px 0;">
+            <p style="margin: 0 0 6px; font-size: 13px; color: #0f172a; font-weight: 600;">
+              🔒 Immediate Action Required:
+            </p>
+            <p style="margin: 0; font-size: 12.5px; color: #475569; line-height: 1.5;">
+              When you sign in using this temporary password, a prompt will automatically appear requiring you to set your own <strong>New Password</strong>. You will not be able to navigate the dashboard until your new password is confirmed.
+            </p>
+          </div>
+
+          <p style="font-size: 12.5px; line-height: 1.5; color: #64748b; margin: 16px 0 0;">
+            ⚠️ If you did not request a password reset, please ignore this email or contact your administrator immediately. Your current password remains active until this temporary password is used.
+          </p>
+        </div>
+
+        <div style="padding-top: 20px; border-top: 1px solid #f1f5f9; text-align: center; font-size: 12px; color: #94a3b8;">
+          Sent from <strong>${SENDER_EMAIL}</strong> &bull; DawatDesk Automated Authentication
+        </div>
+      </div>
+    `;
+
+    console.log('\n======================================================');
+    console.log(`  [DAWATDESK TEMPORARY PASSWORD EMAIL]`);
+    console.log(`  To:           ${cleanEmail}`);
+    console.log(`  Temp Pass:    ${tempPassword}`);
+    console.log(`  Valid For:    10 minutes`);
+    console.log(`  Sender:       ${SENDER_EMAIL}`);
+    console.log('======================================================\n');
+
+    const transporter = this.getTransporter();
+    if (!transporter) {
+      logger.warn(`EMAIL_PASS not configured. Temporary password logged to server terminal.`);
+      return { success: true, delivered: false, tempPassword };
+    }
+
+    try {
+      const info = await transporter.sendMail({
+        from: `"${SENDER_NAME}" <${SENDER_EMAIL}>`,
+        to: cleanEmail,
+        subject,
+        html: htmlContent,
+      });
+
+      logger.info(`Temporary password email sent to ${cleanEmail}. MessageId: ${info.messageId}`);
+      return { success: true, delivered: true, messageId: info.messageId };
+    } catch (err) {
+      logger.error(`Error sending temp password email to ${cleanEmail}: ${err.message}`);
+      return { success: true, delivered: false, warning: err.message, tempPassword };
+    }
+  }
+
+  async sendPasswordChangedEmail(toEmail, userName = '') {
+    const cleanEmail = (toEmail || '').toLowerCase().trim();
+    const subject = 'DawatDesk - Security Alert: Password Changed Successfully';
+    const greeting = userName ? `Hello ${userName},` : 'Hello,';
+    const changeTime = new Date().toLocaleString('en-US', { timeZone: 'Asia/Kolkata', dateStyle: 'medium', timeStyle: 'short' });
+
+    const htmlContent = `
+      <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; max-width: 580px; margin: 0 auto; padding: 28px; border: 1px solid #e2e8f0; border-radius: 16px; background-color: #ffffff; color: #1e293b; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);">
+        <div style="text-align: center; padding-bottom: 20px; border-bottom: 2px solid #fed7aa;">
+          <h1 style="margin: 0; font-size: 26px; font-weight: 800; color: #ea580c; letter-spacing: -0.5px;">DawatDesk POS</h1>
+          <p style="margin: 6px 0 0; font-size: 13px; color: #64748b; font-weight: 500;">Account Security Notification</p>
+        </div>
+
+        <div style="padding: 24px 0;">
+          <h2 style="font-size: 18px; color: #0f172a; margin: 0 0 10px;">${greeting}</h2>
+          <div style="background-color: #ecfdf5; border: 1px solid #a7f3d0; border-radius: 12px; padding: 18px; margin: 18px 0; display: flex; align-items: center; gap: 12px;">
+            <div>
+              <p style="margin: 0; font-size: 15px; font-weight: 700; color: #047857;">
+                ✅ Your password has been changed successfully.
+              </p>
+              <p style="margin: 4px 0 0; font-size: 13px; color: #065f46;">
+                Timestamp: <strong>${changeTime} (IST)</strong>
+              </p>
+            </div>
+          </div>
+
+          <p style="font-size: 14px; line-height: 1.6; color: #475569; margin: 0 0 18px;">
+            Your temporary password has been permanently replaced with your new password. You can now use your new password to sign in to all your DawatDesk devices.
+          </p>
+
+          <div style="background-color: #fff1f2; border-left: 4px solid #f43f5e; padding: 12px 16px; border-radius: 6px; margin: 20px 0;">
+            <p style="margin: 0; font-size: 12.5px; color: #9f1239; line-height: 1.5;">
+              ⚠️ <strong>Did not make this change?</strong> If you did not authorize this password reset, please contact your restaurant administrator or DawatDesk support immediately.
+            </p>
+          </div>
+        </div>
+
+        <div style="padding-top: 20px; border-top: 1px solid #f1f5f9; text-align: center; font-size: 12px; color: #94a3b8;">
+          Sent from <strong>${SENDER_EMAIL}</strong> &bull; DawatDesk Security Team
+        </div>
+      </div>
+    `;
+
+    console.log('\n======================================================');
+    console.log(`  [DAWATDESK PASSWORD CHANGED CONFIRMATION EMAIL]`);
+    console.log(`  To:     ${cleanEmail}`);
+    console.log(`  Time:   ${changeTime}`);
+    console.log('======================================================\n');
+
+    const transporter = this.getTransporter();
+    if (!transporter) {
+      return { success: true, delivered: false };
+    }
+
+    try {
+      const info = await transporter.sendMail({
+        from: `"${SENDER_NAME}" <${SENDER_EMAIL}>`,
+        to: cleanEmail,
+        subject,
+        html: htmlContent,
+      });
+
+      logger.info(`Password changed confirmation email sent to ${cleanEmail}. MessageId: ${info.messageId}`);
+      return { success: true, delivered: true, messageId: info.messageId };
+    } catch (err) {
+      logger.error(`Error sending password changed email to ${cleanEmail}: ${err.message}`);
+      return { success: true, delivered: false, warning: err.message };
+    }
+  }
 }
 
 module.exports = new EmailService();

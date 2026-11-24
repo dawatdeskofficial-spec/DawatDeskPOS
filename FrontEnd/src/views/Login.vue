@@ -1,9 +1,9 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
-import { Mail, Lock, ArrowRight, ArrowLeft, RefreshCw, CheckCircle2, ShieldCheck, Eye, EyeOff, AlertCircle } from 'lucide-vue-next'
+import { Mail, Lock, ArrowRight, ArrowLeft, RefreshCw, CheckCircle2, ShieldCheck, Eye, EyeOff, AlertCircle, KeyRound } from 'lucide-vue-next'
 import { useAuthStore, ROLE_HOMES, type AppRole } from '@/stores/auth'
-import { loginUser, sendOtp } from '@/lib/api'
+import { loginUser, sendOtp, forgotPassword, resetPasswordWithTemp } from '@/lib/api'
 import Button from '@/components/ui/Button.vue'
 import Input from '@/components/ui/Input.vue'
 import DawatDeskLogo from '@/components/DawatDeskLogo.vue'
@@ -27,6 +27,86 @@ const error = ref('')
 const isLoading = ref(false)
 const otpSending = ref(false)
 const otpMessage = ref('')
+
+// Forgot Password State
+const forgotEmail = ref('')
+const forgotLoading = ref(false)
+const forgotError = ref('')
+const forgotSuccess = ref('')
+
+// Temporary Password -> Reset Password Modal State
+const showResetModal = ref(false)
+const resetEmail = ref('')
+const resetToken = ref('')
+const newPassword = ref('')
+const confirmPassword = ref('')
+const showNewPassword = ref(false)
+const showConfirmPassword = ref(false)
+const resetLoading = ref(false)
+const resetError = ref('')
+const resetSuccessBanner = ref('')
+
+function openForgotPassword() {
+  forgot.value = true
+  forgotError.value = ''
+  forgotSuccess.value = ''
+  forgotEmail.value = email.value || ''
+}
+
+async function handleForgotPasswordSubmit() {
+  forgotError.value = ''
+  forgotSuccess.value = ''
+
+  let cleanEmail = forgotEmail.value.trim()
+  if (cleanEmail && !cleanEmail.includes('@')) {
+    cleanEmail = `${cleanEmail}@gmail.com`
+  }
+
+  if (!cleanEmail) {
+    forgotError.value = 'Please enter your email address.'
+    return
+  }
+
+  forgotLoading.value = true
+  try {
+    const res = (await forgotPassword(cleanEmail)) as any
+    forgotSuccess.value =
+      res?.message || 'A one-time temporary password has been sent to your email. It is valid for 10 minutes.'
+    email.value = cleanEmail
+  } catch (err: any) {
+    forgotError.value = err.message || 'Failed to request temporary password.'
+  } finally {
+    forgotLoading.value = false
+  }
+}
+
+async function handleResetPasswordSubmit() {
+  resetError.value = ''
+  if (!newPassword.value || newPassword.value.length < 6) {
+    resetError.value = 'New password must be at least 6 characters long.'
+    return
+  }
+  if (newPassword.value !== confirmPassword.value) {
+    resetError.value = 'New password and confirm password do not match.'
+    return
+  }
+
+  resetLoading.value = true
+  try {
+    await resetPasswordWithTemp(resetEmail.value, resetToken.value, newPassword.value)
+    showResetModal.value = false
+    password.value = ''
+    email.value = resetEmail.value
+    newPassword.value = ''
+    confirmPassword.value = ''
+    resetSuccessBanner.value =
+      'Your password has been changed successfully! A confirmation email has been sent. Please log in with your new password.'
+  } catch (err: any) {
+    resetError.value = err.message || 'Failed to update password. Please try again.'
+  } finally {
+    resetLoading.value = false
+  }
+}
 
 // 30-Second Resend Countdown Timer
 const resendCountdown = ref(0)
@@ -126,7 +206,20 @@ async function handleSubmitCredentials() {
 
   try {
     // 1. Validate credentials with backend
-    await loginUser(cleanEmail, password.value)
+    const loginRes = (await loginUser(cleanEmail, password.value)) as any
+    const payload = loginRes?.data || loginRes
+
+    // If user logged in with a temporary password from Forgot Password flow:
+    if (payload?.requiresPasswordReset) {
+      resetEmail.value = payload.email || cleanEmail
+      resetToken.value = payload.resetToken || ''
+      newPassword.value = ''
+      confirmPassword.value = ''
+      resetError.value = ''
+      showResetModal.value = true
+      isLoading.value = false
+      return
+    }
 
     // 2. Dispatch OTP / request access
     const res = (await sendOtp(cleanEmail, 'login')) as any
@@ -286,31 +379,70 @@ function goBackToCredentials() {
             </div>
           </div>
 
-          <!-- Forgot Password View -->
+          <!-- Forgot Password View (Generates One-Time Temporary Password valid for 10 mins) -->
           <div v-if="forgot" class="space-y-4 animate-fade-in">
             <div>
-              <h2 class="font-display text-2xl lg:text-3xl font-bold leading-tight text-foreground">Reset password</h2>
-              <p class="text-muted-foreground text-xs sm:text-sm mt-1">We'll send a recovery link to your registered email address.</p>
+              <div class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-amber-500/10 border border-amber-500/20 text-xs text-amber-600 dark:text-amber-400 font-semibold mb-2">
+                <KeyRound class="h-3.5 w-3.5" />
+                Temporary Access Key
+              </div>
+              <h2 class="font-display text-2xl lg:text-3xl font-bold leading-tight text-foreground">Forgot password?</h2>
+              <p class="text-muted-foreground text-xs sm:text-sm mt-1 leading-relaxed">
+                Enter your registered email address. We will generate a secure one-time temporary password valid for <strong>10 minutes</strong> and send it to your inbox.
+              </p>
             </div>
-            <div class="space-y-1.5">
-              <label class="text-xs sm:text-sm font-medium flex items-center gap-1.5 text-foreground">
-                <Mail class="h-3.5 w-3.5 text-muted-foreground" />
-                Email address
-              </label>
-              <Input
-                type="email"
-                placeholder="name@company.com"
-                class="h-11 text-sm bg-background/60 focus:bg-background border-border/80 focus:border-primary transition"
-              />
-            </div>
-            <Button
-              class="w-full h-11 text-sm gradient-primary text-primary-foreground font-semibold shadow-glow hover:opacity-95 active:scale-[0.99] rounded-xl cursor-pointer"
-              @click="forgot = false"
+
+            <!-- Success notification banner -->
+            <div
+              v-if="forgotSuccess"
+              class="p-3.5 rounded-xl bg-emerald-500/10 border border-emerald-500/25 text-xs text-emerald-700 dark:text-emerald-300 flex items-start gap-2.5 animate-fade-in"
             >
-              Send recovery link
-            </Button>
+              <CheckCircle2 class="h-4 w-4 shrink-0 mt-0.5 text-emerald-600 dark:text-emerald-400" />
+              <div class="space-y-1">
+                <div class="font-semibold">{{ forgotSuccess }}</div>
+                <p class="text-[11.5px] text-muted-foreground">
+                  Check your inbox for the temporary password, then return to sign in. Upon signing in, a pop-up will appear requiring you to set your new permanent password.
+                </p>
+              </div>
+            </div>
+
+            <!-- Error banner -->
+            <div
+              v-if="forgotError"
+              class="p-3 rounded-xl bg-destructive/10 border border-destructive/25 text-xs sm:text-sm text-destructive font-medium flex items-start gap-2 animate-fade-in"
+            >
+              <AlertCircle class="h-4 w-4 shrink-0 mt-0.5 text-destructive" />
+              <span>{{ forgotError }}</span>
+            </div>
+
+            <form @submit.prevent="handleForgotPasswordSubmit" class="space-y-4">
+              <div class="space-y-1.5">
+                <label class="text-xs sm:text-sm font-medium flex items-center gap-1.5 text-foreground">
+                  <Mail class="h-3.5 w-3.5 text-muted-foreground" />
+                  Email address
+                </label>
+                <Input
+                  type="email"
+                  v-model="forgotEmail"
+                  placeholder="name@company.com"
+                  required
+                  class="h-11 text-sm bg-background/60 focus:bg-background border-border/80 focus:border-primary transition"
+                  autocomplete="username"
+                />
+              </div>
+
+              <Button
+                type="submit"
+                :disabled="forgotLoading"
+                class="w-full h-11 text-sm gradient-primary text-primary-foreground font-semibold shadow-glow hover:opacity-95 active:scale-[0.99] rounded-xl cursor-pointer flex items-center justify-center gap-2"
+              >
+                <RefreshCw v-if="forgotLoading" class="h-4 w-4 animate-spin" />
+                <span>{{ forgotLoading ? 'Sending temporary password...' : 'Send Temporary Password' }}</span>
+              </Button>
+            </form>
+
             <button
-              @click="forgot = false"
+              @click="forgot = false; forgotError = ''; forgotSuccess = '';"
               class="text-xs sm:text-sm text-muted-foreground hover:text-foreground cursor-pointer flex items-center justify-center gap-1.5 font-medium transition mx-auto pt-1"
             >
               <ArrowLeft class="h-3.5 w-3.5" /> Back to sign in
@@ -327,6 +459,18 @@ function goBackToCredentials() {
                   <p class="text-muted-foreground text-xs sm:text-sm mt-1 leading-relaxed">
                     Please enter your email and password to access your restaurant operations.
                   </p>
+                </div>
+
+                <!-- Password Changed Success Notification Banner -->
+                <div
+                  v-if="resetSuccessBanner"
+                  class="p-3.5 rounded-xl bg-emerald-500/10 border border-emerald-500/25 text-xs text-emerald-700 dark:text-emerald-300 flex items-start gap-2.5 animate-fade-in"
+                >
+                  <CheckCircle2 class="h-4 w-4 shrink-0 mt-0.5 text-emerald-600 dark:text-emerald-400" />
+                  <div class="space-y-0.5">
+                    <div class="font-semibold">{{ resetSuccessBanner }}</div>
+                    <div class="text-[11.5px] text-muted-foreground">You can now sign in using your new password.</div>
+                  </div>
                 </div>
 
                 <form @submit.prevent="handleSubmitCredentials" class="space-y-4">
@@ -353,7 +497,7 @@ function goBackToCredentials() {
                       </label>
                       <button
                         type="button"
-                        @click="forgot = true"
+                        @click="openForgotPassword"
                         class="text-xs text-primary hover:underline cursor-pointer font-medium transition"
                       >
                         Forgot password?
@@ -512,37 +656,113 @@ function goBackToCredentials() {
       </div>
     </div>
   </div>
+
+  <!-- New Password Pop-up Dialog Modal for Temporary Password Login -->
+  <Teleport to="body">
+    <div
+      v-if="showResetModal"
+      class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-md animate-fade-in select-none"
+    >
+      <div class="relative w-full max-w-md bg-card border border-border/90 rounded-3xl p-6 sm:p-8 shadow-2xl space-y-6 overflow-hidden">
+        <div class="absolute top-0 inset-x-0 h-1.5 bg-gradient-to-r from-primary via-primary-glow to-amber-500" />
+
+        <div class="text-center space-y-2">
+          <div class="mx-auto w-12 h-12 rounded-2xl bg-primary/10 border border-primary/20 flex items-center justify-center text-primary shadow-xs">
+            <KeyRound class="h-6 w-6" />
+          </div>
+          <h3 class="font-display text-2xl font-bold tracking-tight text-foreground">Create New Password</h3>
+          <p class="text-xs sm:text-sm text-muted-foreground leading-relaxed">
+            You signed in using a temporary password for <strong class="text-foreground font-semibold">{{ resetEmail }}</strong>. For your security, please choose your new permanent password before proceeding.
+          </p>
+        </div>
+
+        <!-- Error Alert -->
+        <div
+          v-if="resetError"
+          class="p-3 rounded-xl bg-destructive/10 border border-destructive/25 text-xs sm:text-sm text-destructive font-medium flex items-start gap-2 animate-fade-in"
+        >
+          <AlertCircle class="h-4 w-4 shrink-0 mt-0.5 text-destructive" />
+          <span>{{ resetError }}</span>
+        </div>
+
+        <form @submit.prevent="handleResetPasswordSubmit" class="space-y-4">
+          <div class="space-y-1.5">
+            <label class="text-xs sm:text-sm font-medium flex items-center gap-1.5 text-foreground">
+              <Lock class="h-3.5 w-3.5 text-muted-foreground" />
+              New Password
+            </label>
+            <div class="relative">
+              <Input
+                :type="showNewPassword ? 'text' : 'password'"
+                v-model="newPassword"
+                placeholder="At least 6 characters"
+                required
+                minlength="6"
+                class="h-11 text-sm pr-10 bg-background/60 focus:bg-background border-border/80 focus:border-primary transition"
+                autocomplete="new-password"
+              />
+              <button
+                type="button"
+                @click="showNewPassword = !showNewPassword"
+                class="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground cursor-pointer transition p-1"
+                tabindex="-1"
+              >
+                <EyeOff v-if="showNewPassword" class="h-4 w-4" />
+                <Eye v-else class="h-4 w-4" />
+              </button>
+            </div>
+          </div>
+
+          <div class="space-y-1.5">
+            <label class="text-xs sm:text-sm font-medium flex items-center gap-1.5 text-foreground">
+              <Lock class="h-3.5 w-3.5 text-muted-foreground" />
+              Confirm New Password
+            </label>
+            <div class="relative">
+              <Input
+                :type="showConfirmPassword ? 'text' : 'password'"
+                v-model="confirmPassword"
+                placeholder="Repeat new password"
+                required
+                minlength="6"
+                class="h-11 text-sm pr-10 bg-background/60 focus:bg-background border-border/80 focus:border-primary transition"
+                autocomplete="new-password"
+              />
+              <button
+                type="button"
+                @click="showConfirmPassword = !showConfirmPassword"
+                class="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground cursor-pointer transition p-1"
+                tabindex="-1"
+              >
+                <EyeOff v-if="showConfirmPassword" class="h-4 w-4" />
+                <Eye v-else class="h-4 w-4" />
+              </button>
+            </div>
+          </div>
+
+          <Button
+            type="submit"
+            :disabled="resetLoading || !newPassword || !confirmPassword"
+            class="w-full h-11 gradient-primary text-primary-foreground font-semibold shadow-glow hover:opacity-95 active:scale-[0.99] text-sm cursor-pointer flex items-center justify-center gap-2 rounded-xl transition duration-150"
+          >
+            <RefreshCw v-if="resetLoading" class="h-4 w-4 animate-spin" />
+            <span>{{ resetLoading ? 'Updating password...' : 'Save Password & Continue' }}</span>
+          </Button>
+        </form>
+
+        <div class="text-center pt-1 border-t border-border/50">
+          <button
+            type="button"
+            @click="showResetModal = false; password = '';"
+            class="text-xs text-muted-foreground hover:text-foreground font-medium cursor-pointer transition"
+          >
+            Cancel and return to sign in
+          </button>
+        </div>
+      </div>
+    </div>
+  </Teleport>
 </template>
-
-<style scoped>
-/* Step Forward Animation (Slide to Left) */
-.step-forward-enter-active,
-.step-forward-leave-active {
-  transition: all 0.28s cubic-bezier(0.16, 1, 0.3, 1);
-}
-.step-forward-enter-from {
-  opacity: 0;
-  transform: translateX(35px);
-}
-.step-forward-leave-to {
-  opacity: 0;
-  transform: translateX(-35px);
-}
-
-/* Step Backward Animation (Slide to Right) */
-.step-backward-enter-active,
-.step-backward-leave-active {
-  transition: all 0.28s cubic-bezier(0.16, 1, 0.3, 1);
-}
-.step-backward-enter-from {
-  opacity: 0;
-  transform: translateX(-35px);
-}
-.step-backward-leave-to {
-  opacity: 0;
-  transform: translateX(35px);
-}
-</style>
 
 <style scoped>
 /* Step Forward Animation (Slide to Left) */

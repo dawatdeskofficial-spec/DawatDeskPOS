@@ -61,6 +61,14 @@ const userSchema = new mongoose.Schema(
       type: Date,
       default: null,
     },
+    isTemporaryPassword: {
+      type: Boolean,
+      default: false,
+    },
+    tempPasswordExpires: {
+      type: Date,
+      default: null,
+    },
   },
   {
     timestamps: true,
